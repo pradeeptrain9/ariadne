@@ -1,0 +1,33 @@
+{
+  "scenario_a": [
+    {
+      "id": "alr-a08",
+      "at": 1759957827328,
+      "metric": "latency_p99",
+      "value": 16.23,
+      "severity": "high",
+      "service": "catalog-service"
+    },
+    {
+      "id": "alr-a09",
+      "at": 1759980152988,
+      "metric": "latency_p99",
+      "value": 26.59,
+      "severity": "high",
+      "service": "fraud-service"
+    }
+  ],
+  "scenario_b": {
+    "id": "alr-061",
+    "at": 1759187725605,
+    "metric": "saturation",
+    "value": 22.59,
+    "severity": "critical",
+    "service": "config-service"
+  },
+  "scenario_c": {
+    "superseded_plan": "plan-027",
+    "replacement": "plan-027-v2",
+    "signature": "af2fbb7b93cf"
+  }
+}

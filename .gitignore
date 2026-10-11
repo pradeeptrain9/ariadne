@@ -1,0 +1,14 @@
+# secrets — never commit; this repo is public (rule 10)
+.env
+.env.*
+!.env.example
+*.key
+
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# the working ledger (git has no trailing-comment syntax, so this note gets its own line);
+# the committed evidence lives in docs/measurements/
+/runs.jsonl

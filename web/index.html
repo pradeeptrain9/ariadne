@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ariadne</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #ffffff; --line: #e4e2dd; --ink: #1a1a18;
+    --muted: #6b6862; --faint: #a8a49c;
+    --t1: #b4472e; --t2: #35668f; --t3: #6b6862;
+    --hot: #b4472e; --warm-c: #357a52; --accent: #8a5a2b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16161a; --panel: #1d1d22; --line: #2e2e35; --ink: #eceae6;
+      --muted: #9b968e; --faint: #6a655d;
+      --t1: #e08264; --t2: #74a9d4; --t3: #8d877e;
+      --hot: #e08264; --warm-c: #6cc08a; --accent: #d2a06a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16161a; --panel: #1d1d22; --line: #2e2e35; --ink: #eceae6;
+    --muted: #9b968e; --faint: #6a655d;
+    --t1: #e08264; --t2: #74a9d4; --t3: #8d877e;
+    --hot: #e08264; --warm-c: #6cc08a; --accent: #d2a06a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 18px 16px 14px; border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--muted); font-weight: 400; }
+  .stats { color: var(--muted); font: 12px/1.4 var(--mono); margin-left: auto; }
+  main {
+    display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 16px; padding: 16px; max-width: 1500px; margin: 0 auto;
+  }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px;
+  }
+  .card > h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--muted); margin: 0 0 10px; font-weight: 600;
+  }
+  /* controls */
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  select, button {
+    font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 11px;
+  }
+  button { cursor: pointer; }
+  button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  label.inline { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  /* mesh */
+  svg { width: 100%; height: auto; display: block; }
+  .edge { stroke: var(--line); fill: none; stroke-width: 1; }
+  .edge.critical { stroke-width: 1.4; }
+  .edge.lit { stroke: var(--hot); stroke-width: 2; opacity: 0.85; }
+  .node circle { stroke: var(--panel); stroke-width: 1.5; transition: r 0.25s; }
+  .node text { font: 10px var(--mono); fill: var(--muted); }
+  .node.failing circle { stroke: var(--hot); stroke-width: 3; }
+  .node.failing text { fill: var(--hot); font-weight: 700; }
+  .node.impacted circle { stroke: var(--accent); stroke-width: 2.2; }
+  .node.impacted text { fill: var(--ink); }
+  .node.dim { opacity: 0.3; }
+  .legend { display: flex; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+  /* transcript */
+  #log { max-height: 340px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+  #log li {
+    display: grid; grid-template-columns: 18px 1fr auto; gap: 8px;
+    padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px;
+  }
+  #log li:last-child { border-bottom: 0; }
+  #log .ix { color: var(--faint); font: 11px var(--mono); padding-top: 2px; }
+  #log .tool { font: 12px var(--mono); color: var(--ink); }
+  #log .args { color: var(--muted); font: 11px var(--mono); word-break: break-all; }
+  #log .meta { color: var(--faint); font: 11px var(--mono); white-space: nowrap; }
+  #log li.note .tool { color: var(--muted); font-style: italic; font-family: inherit; }
+  /* meters */
+  .meters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .meter .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+  .meter .v { font: 600 21px/1.2 var(--mono); margin-top: 2px; }
+  .badge {
+    font: 600 11px var(--mono); padding: 2px 7px; border-radius: 20px;
+    border: 1px solid currentColor;
+  }
+  .badge.cold { color: var(--t2); }
+  .badge.warm { color: var(--warm-c); }
+  /* bars */
+  .bars { display: grid; gap: 9px; }
+  .bar { display: grid; grid-template-columns: 46px 1fr 94px; gap: 9px; align-items: center; font-size: 12px; }
+  .bar .track { background: var(--line); border-radius: 4px; height: 16px; overflow: hidden; }
+  .bar .fill { display: block; }
+  .bar .fill { height: 100%; border-radius: 4px; }
+  .bar.cold .fill { background: var(--t2); }
+  .bar.warm .fill { background: var(--warm-c); }
+  .bar .n { text-align: right; font-family: var(--mono); color: var(--muted); }
+  .verdict { font-size: 13.5px; }
+  .verdict ul { margin: 0; padding-left: 18px; }
+  .verdict li { margin: 5px 0; }
+  .verdict code { font: 12px var(--mono); background: var(--bg);
+                  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .verdict strong { color: var(--ink); }
+  .verdict p { margin: 0 0 8px; }
+  .verdict:empty::before { content: "No verdict yet."; color: var(--faint); }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
+  .err { color: var(--hot); font: 12px var(--mono); white-space: pre-wrap; }
+  .stack { display: grid; gap: 16px; align-content: start; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ariadne <span>— on-call agent with a graph for memory</span></h1>
+  <div class="stats" id="stats">loading…</div>
+</header>
+
+<main>
+  <div class="stack">
+    <section class="card">
+      <h2>Service mesh</h2>
+      <div id="mesh"></div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--t1)"></i>tier 1 · customer-facing</span>
+        <span><i class="dot" style="background:var(--t2)"></i>tier 2 · services</span>
+        <span><i class="dot" style="background:var(--t3)"></i>tier 3 · infrastructure</span>
+      </div>
+      <p class="hint" id="meshNote">Nothing pre-computed. Pick an alert to investigate.</p>
+    </section>
+
+    <section class="card">
+      <h2>Cold vs warm — from runs.jsonl</h2>
+      <div class="bars" id="bars"></div>
+      <p class="hint" id="ratio"></p>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="card">
+      <h2>Investigate</h2>
+      <div class="controls">
+        <select id="alert"></select>
+        <label class="inline"><input type="checkbox" id="cold"> withhold memory</label>
+        <button class="primary" id="go">Investigate</button>
+      </div>
+      <p class="hint" id="shape"></p>
+      <p class="err" id="error"></p>
+    </section>
+
+    <section class="card">
+      <h2>Live run</h2>
+      <div class="meters">
+        <div class="meter"><div class="k">mode</div><div class="v" id="mMode">—</div></div>
+        <div class="meter"><div class="k">tool calls</div><div class="v" id="mCalls">0</div></div>
+        <div class="meter"><div class="k">tokens</div><div class="v" id="mTok">0</div></div>
+        <div class="meter"><div class="k">cost</div><div class="v" id="mCost">$0.0000</div></div>
+      </div>
+      <ul id="log"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Verdict</h2>
+      <div class="verdict" id="verdict"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n.toLocaleString();
+let MESH = { services: [], deps: [] }, byName = new Map(), stream = null;
+
+/* ---------- mesh ---------------------------------------------------------- */
+const W = 860, PAD_L = 92, PAD_R = 108, PAD_Y = 30, ROW = 23;
+
+function layout(services) {
+  const tiers = [1, 2, 3].map((t) => services.filter((s) => +s.tier === t));
+  const rows = Math.max(...tiers.map((t) => t.length));
+  const H = PAD_Y * 2 + (rows - 1) * ROW;
+  const pos = new Map();
+  tiers.forEach((group, col) => {
+    const x = PAD_L + col * ((W - PAD_L - PAD_R) / 2);
+    // Spread each column over the full height so the three tiers stay visually aligned
+    // regardless of how many services each one holds.
+    const span = H - PAD_Y * 2;
+    group.forEach((s, i) => {
+      const y = group.length === 1 ? H / 2 : PAD_Y + (i * span) / (group.length - 1);
+      pos.set(s.name, { x, y, tier: +s.tier });
+    });
+  });
+  return { pos, H };
+}
+
+function drawMesh() {
+  const { pos, H } = layout(MESH.services);
+  const esc = (s) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const edges = MESH.deps.map((d) => {
+    const a = pos.get(d.source), b = pos.get(d.target);
+    if (!a || !b) return "";
+    const mx = (a.x + b.x) / 2;
+    return `<path class="edge${d.critical ? " critical" : ""}"
+      data-s="${esc(d.source)}" data-t="${esc(d.target)}"
+      d="M${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}"/>`;
+  }).join("");
+
+  const nodes = MESH.services.map((s) => {
+    const p = pos.get(s.name);
+    const fill = `var(--t${s.tier})`;
+    const r = 3.5 + Math.min(3, (+s.betweenness || 0) / 12);
+    const anchor = +s.tier === 3 ? "start" : +s.tier === 1 ? "end" : "middle";
+    const dx = +s.tier === 3 ? 9 : +s.tier === 1 ? -9 : 0;
+    const dy = +s.tier === 2 ? -8 : 3;
+    return `<g class="node" id="n-${esc(s.name)}" data-name="${s.name}">
+      <circle cx="${p.x}" cy="${p.y}" r="${r.toFixed(1)}" fill="${fill}"/>
+      <text x="${p.x + dx}" y="${p.y + dy}" text-anchor="${anchor}">${s.name}</text>
+    </g>`;
+  }).join("");
+
+  $("mesh").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="service dependency mesh">
+       <g>${edges}</g><g>${nodes}</g></svg>`;
+}
+
+/* Blast radius computed in the page from the dependency edges it already has — the same
+   transitive-callers traversal the agent's tool runs, so the drawing and the verdict agree. */
+function callersOf(target) {
+  const incoming = new Map();
+  MESH.deps.forEach((d) => {
+    if (!incoming.has(d.target)) incoming.set(d.target, []);
+    incoming.get(d.target).push(d.source);
+  });
+  const seen = new Set(), out = [];
+  let frontier = [target];
+  while (frontier.length) {
+    const next = [];
+    for (const n of frontier) {
+      for (const caller of incoming.get(n) || []) {
+        if (seen.has(caller)) continue;
+        seen.add(caller); out.push(caller); next.push(caller);
+      }
+    }
+    frontier = next;
+  }
+  return out;
+}
+
+function highlight(failing) {
+  const esc = (s) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
+  document.querySelectorAll(".node").forEach((n) =>
+    n.classList.remove("failing", "impacted", "dim"));
+  document.querySelectorAll(".edge").forEach((e) => e.classList.remove("lit"));
+  if (!failing) return [];
+
+  const impacted = callersOf(failing);
+  const live = new Set([failing, ...impacted]);
+  document.querySelectorAll(".node").forEach((n) => {
+    const name = n.dataset.name;
+    if (name === failing) n.classList.add("failing");
+    else if (live.has(name)) n.classList.add("impacted");
+    else n.classList.add("dim");
+  });
+  // Light an edge only when both ends are in the impacted set: those are the paths the
+  // failure actually travels along.
+  const liveIds = new Set([...live].map(esc));
+  document.querySelectorAll(".edge").forEach((e) => {
+    if (liveIds.has(e.getAttribute("data-s")) && liveIds.has(e.getAttribute("data-t"))) {
+      e.classList.add("lit");
+    }
+  });
+  return impacted;
+}
+
+/* ---------- transcript ---------------------------------------------------- */
+let ix = 0;
+function logTool(name, input, rows, ms) {
+  const li = document.createElement("li");
+  const args = JSON.stringify(input);
+  li.innerHTML = `<span class="ix">${++ix}</span>
+    <span><span class="tool">${name}</span><br><span class="args">${
+      args.length > 120 ? args.slice(0, 120) + "…" : args}</span></span>
+    <span class="meta">${rows == null ? "" : rows + " rows"}${ms == null ? "" : " · " + ms + "ms"}</span>`;
+  $("log").append(li);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+function logNote(text) {
+  const li = document.createElement("li");
+  li.className = "note";
+  li.innerHTML = `<span class="ix">·</span><span class="tool">${text}</span><span></span>`;
+  $("log").append(li);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+/* The model writes the verdict as markdown. Render just enough of it to be readable —
+   escaping first, because this text is model output and must never reach innerHTML raw. */
+function renderVerdict(md) {
+  const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (t) => esc(t)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  const out = [];
+  let list = null;
+  for (const raw of md.split("\n")) {
+    const line = raw.trim();
+    if (!line) { if (list) { out.push(`<ul>${list.join("")}</ul>`); list = null; } continue; }
+    const bullet = line.match(/^[-*]\s+(.*)$/);
+    if (bullet) { (list ||= []).push(`<li>${inline(bullet[1])}</li>`); continue; }
+    if (list) { out.push(`<ul>${list.join("")}</ul>`); list = null; }
+    out.push(`<p>${inline(line)}</p>`);
+  }
+  if (list) out.push(`<ul>${list.join("")}</ul>`);
+  $("verdict").innerHTML = out.join("");
+}
+
+/* ---------- ledger ------------------------------------------------------- */
+async function loadLedger() {
+  const { summary } = await (await fetch("/api/ledger")).json();
+  const arms = ["cold", "warm"].filter((m) => summary[m] && summary[m].runs);
+  if (!arms.length) { $("bars").innerHTML = `<p class="hint">No runs recorded yet.</p>`; return; }
+  const max = Math.max(...arms.map((m) => summary[m].mean_cost_usd));
+  $("bars").innerHTML = arms.map((m) => {
+    const a = summary[m];
+    return `<div class="bar ${m}">
+      <span>${m}</span>
+      <span class="track"><span class="fill" style="width:${(a.mean_cost_usd / max * 100).toFixed(1)}%"></span></span>
+      <span class="n">$${a.mean_cost_usd.toFixed(4)} · ${a.mean_tool_calls} calls</span>
+    </div>`;
+  }).join("");
+  $("ratio").textContent = summary.cost_ratio
+    ? `${summary.cost_ratio}× cheaper and ${summary.call_ratio}× fewer tool calls when memory is available `
+      + `(${summary.cold.runs} cold runs, ${summary.warm.runs} warm, same alerts).`
+    : "Run both arms to get a ratio.";
+}
+
+/* ---------- run ---------------------------------------------------------- */
+function reset() {
+  ix = 0; $("log").innerHTML = ""; $("verdict").innerHTML = "";
+  $("error").textContent = ""; $("mCalls").textContent = "0";
+  $("mTok").textContent = "0"; $("mCost").textContent = "$0.0000";
+  $("mMode").textContent = "—";
+}
+
+function run() {
+  const alertId = $("alert").value;
+  if (!alertId) return;
+  reset();
+  $("go").disabled = true;
+  if (stream) stream.close();
+
+  const url = `/api/investigate?alert=${encodeURIComponent(alertId)}`
+    + ($("cold").checked ? "&mode=cold" : "");
+  stream = new EventSource(url);
+
+  stream.addEventListener("start", (e) => {
+    const d = JSON.parse(e.data);
+    $("mMode").innerHTML = `<span class="badge ${d.mode}">${d.mode}</span>`;
+    const impacted = highlight(d.alert.service);
+    $("meshNote").textContent =
+      `${d.alert.service} is failing · ${impacted.length} service(s) downstream of it`;
+    $("shape").textContent =
+      `signature ${d.signature} — ${Object.entries(d.shape)
+        .map(([k, v]) => `${k}=${v}`).join(", ")}`;
+    logNote(d.memory.found
+      ? `memory hit: plan ${d.memory.plan}, ${d.memory.runs} prior run(s) — ${d.memory.hypothesis}`
+      : "memory miss: no plan for this shape, investigating from scratch");
+  });
+
+  stream.addEventListener("tool", (e) => {
+    const d = JSON.parse(e.data);
+    logTool(d.name, d.input, d.rows, d.ms);
+  });
+
+  stream.addEventListener("usage", (e) => {
+    const d = JSON.parse(e.data);
+    $("mCalls").textContent = d.tool_calls;
+    $("mTok").textContent = fmt(d.tokens);
+    $("mCost").textContent = "$" + d.cost.toFixed(4);
+  });
+
+  stream.addEventListener("text", (e) => { renderVerdict(JSON.parse(e.data).text); });
+
+  stream.addEventListener("error", (e) => {
+    try { $("error").textContent = JSON.parse(e.data).message; } catch { /* transport */ }
+  });
+
+  stream.addEventListener("done", (e) => {
+    const d = JSON.parse(e.data);
+    const r = d.run;
+    logNote(`done — ${r.tool_calls} tool calls, ${fmt(r.total_tokens)} tokens `
+      + `(${fmt(r.cache_read)} cached), $${r.cost_usd.toFixed(4)}, ${fmt(r.wall_ms)}ms`);
+    if (d.text) renderVerdict(d.text);
+    loadLedger();
+  });
+
+  stream.addEventListener("end", () => { stream.close(); $("go").disabled = false; });
+  stream.onerror = () => { stream.close(); $("go").disabled = false; };
+}
+
+/* ---------- boot --------------------------------------------------------- */
+(async function boot() {
+  MESH = await (await fetch("/api/graph")).json();
+  byName = new Map(MESH.services.map((s) => [s.name, s]));
+  const st = MESH.stats;
+  $("stats").textContent =
+    `${st.service} services · ${st.commit} commits · ${st.deploy} deploys · `
+    + `${st.incident} incidents · ${st.plan} plans · ${st.step} steps`;
+  drawMesh();
+
+  const { scenarios, unresolved } = await (await fetch("/api/alerts")).json();
+  const opts = [];
+  const push = (a, label) => a && opts.push(
+    `<option value="${a.id}">${label} — ${a.service} · ${a.metric} · ${a.severity}</option>`);
+  (scenarios.scenario_a || []).forEach((a, i) => push(a, `A${i + 1} repeated shape`));
+  push(scenarios.scenario_b, "B novel shape");
+  unresolved.forEach((a) => push(a, a.id));
+  $("alert").innerHTML = opts.join("");
+
+  $("go").onclick = run;
+  loadLedger();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "cold": {
+    "runs": 4,
+    "mean_tool_calls": 8.0,
+    "mean_tokens": 36017,
+    "mean_cost_usd": 0.1281,
+    "mean_wall_ms": 32945
+  },
+  "warm": {
+    "runs": 6,
+    "mean_tool_calls": 4.0,
+    "mean_tokens": 25288,
+    "mean_cost_usd": 0.0677,
+    "mean_wall_ms": 19293
+  },
+  "cost_ratio": 1.9,
+  "call_ratio": 2.0
+}

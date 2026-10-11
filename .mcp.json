@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ariadne": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "ariadne.mcp_server"],
+      "env": {
+        "FALKORDB_HOST": "localhost",
+        "FALKORDB_PORT": "6379",
+        "ARIADNE_GRAPH": "ariadne"
+      }
+    }
+  }
+}
