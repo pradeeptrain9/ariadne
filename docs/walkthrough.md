@@ -109,19 +109,35 @@ matter:
 
 - `upstream_candidates` — reverse variable-length `DEPENDS_ON` traversal, ranked by whether the
   path was marked critical, then distance, then tier.
-- `blast_radius` — `algo.bfs` over `DEPENDS_ON`, unlimited depth.
+- `blast_radius` — variable-length `DEPENDS_ON` match over incoming edges, with depth.
 - `suspect_commits` — the file-overlap computation above.
 - `recall_plan` — signature lookup on an indexed property, falling back to
   `db.idx.vector.queryNodes` for near-misses.
 
 ## "Which FalkorDB algorithms do you use, and why those?"
 
-| Algorithm | Use | Why not plain Cypher |
+| Algorithm | Where it runs | Why |
 |---|---|---|
-| `algo.bfs` | blast radius | Depth-bounded reachability over one edge type is precisely the primitive; clearer and faster than a 5-hop variable-length match. |
-| `algo.SPpaths` | the path from culprit to the most important broken service | Returns a path object with a weight. Weighted by `calls_per_min`, so the rendered path is the one carrying real traffic, not the shortest by hop count. |
-| `algo.betweenness` | chokepoint score per service, computed once at seed time | Breaks ties in `upstream_candidates` with a structural fact instead of an arbitrary one. |
-| `algo.WCC` | fixture sanity check | A disconnected component means the generator produced an unreachable service, which would make a demo query return empty for reasons that look like an agent bug. |
+| `algo.betweenness` | `seed.py`, once at seed time | Chokepoint score per service, stored on `Service.betweenness` and used as the last ordering key in `upstream_candidates`. Computed, not guessed. |
+| `algo.WCC` | `verify.py` | Asserts the seeded mesh is one component — an orphan service would make a demo query return empty for reasons that look like an agent bug. |
+| `algo.BFS` | `verify.py` | Cross-checks the variable-length traversal and pins FalkorDB's documented-but-false depth-0 behaviour. **Not** used for blast radius: BFS follows edges in their stored direction, which with `(caller)-[:DEPENDS_ON]->(callee)` walks away from the callers, and it returns no per-node depth. |
+| `db.idx.vector.queryNodes` | `verify.py` | Proves the `Plan.embedding` index works and that `score` is a distance, not a similarity. |
+
+Blast radius and the dependency cone are variable-length pattern matches rather than algorithm
+calls, for the direction and depth reasons above. `docs/queries.md` has every query verbatim, and
+a test asserts the document matches the code.
+
+If asked why the agent's own traversals are not algorithm calls: we tried. `algo.BFS` was the
+original blast-radius implementation and it answers the opposite question, because it follows
+`DEPENDS_ON` in the direction it is stored. The variable-length match is not a fallback from
+failing to use the algorithm layer; it is the correct primitive for "who calls this,
+transitively, and how far away are they".
+
+Two things earlier design notes claimed that the code does not do, listed in
+`docs/queries.md` under "Designed, not implemented": vector recall as a near-miss fallback in
+`recall_plan` (the index exists and is verified, but recall matches the exact signature only),
+and `algo.SPpaths` for a weighted culprit→victim path (never called anywhere). Both were in the
+notes before the code existed and neither earned its way in.
 
 ## "What did FalkorDB make you work around?"
 

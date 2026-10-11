@@ -66,16 +66,25 @@ A* search, harmonic centrality and MaxFlow.
 `algo.bfs`. Tested: procedure names are case-insensitive, so both work. We use `algo.BFS`,
 matching `dbms.procedures()`.
 
-What we use, and why (full table in `queries.md`):
+What we ended up using, and where (full table in `queries.md`, which is checked against the
+code by a test):
 
-- `algo.bfs` → `blast_radius`. `max_depth: 0` means unlimited. Yields `nodes, edges`; does **not**
-  yield per-node depth, so depth labels come from an explicit variable-length match.
-- `algo.SPpaths` → the weighted path from the culprit to the most important affected service.
-  Config map takes `sourceNode`, `targetNode`, `relTypes`, `weightProp`, optional `costProp`,
-  `maxCost`, `maxLen`, `relDirection`, `pathCount` (0 = all, 1 = default). Weighted by
-  `calls_per_min`, so the rendered path is the one carrying real traffic.
 - `algo.betweenness` → chokepoint scores, computed once at seed time and stored on `Service`.
-- `algo.WCC` → fixture sanity check (one component, no orphans).
+- `algo.WCC` → fixture sanity check: the seeded mesh must be a single component.
+- `algo.BFS` → in `verify.py`, to cross-check the variable-length traversal and to pin the
+  depth-0 behaviour as a regression test.
+
+Two procedures we tested, documented, and then did **not** use in the product:
+
+- `algo.BFS` for blast radius. It was the original design. BFS follows edges in their stored
+  direction, and with `(caller)-[:DEPENDS_ON]->(callee)` that walks away from the callers — it
+  answers "what does this depend on", the opposite of the question. It also yields no per-node
+  depth. A variable-length pattern match is the right primitive and gives depth for free.
+- `algo.SPpaths` for a weighted culprit→victim path. Confirmed working (config map with
+  `sourceNode`, `targetNode`, `relTypes`, `weightProp`, optional `costProp`/`maxCost`/`maxLen`/
+  `relDirection`/`pathCount`), and it would draw a nice line on the demo page. It is not called
+  anywhere in the product. Listed here and in `queries.md` as designed-not-implemented rather
+  than left in a table that implies otherwise.
 
 ## Vector index
 

@@ -76,12 +76,17 @@ served over MCP (stdio, read-only by default), and a test asserts the two surfac
 
 Graph algorithms earn their place rather than decorating the README:
 
-| Algorithm | Use |
+| Algorithm | Where it runs |
 |---|---|
-| `algo.BFS` | blast radius — depth-bounded reachability over one edge type |
-| `algo.SPpaths` | the weighted path from culprit to the most important broken service |
-| `algo.betweenness` | chokepoint score per service, computed at seed time, breaks ties structurally |
-| `algo.WCC` | fixture sanity check — an orphan service would make a demo query return empty |
+| `algo.betweenness` | seed time — chokepoint score per service, the last ordering key in `upstream_candidates` |
+| `algo.WCC` | verification — the seeded mesh must be one component |
+| `algo.BFS` | verification — cross-checks the traversal and pins the false depth-0 behaviour |
+| `db.idx.vector.queryNodes` | verification — proves the plan index works and that `score` is a distance |
+
+Blast radius is a variable-length pattern match, not `algo.BFS`: BFS follows edges in their
+stored direction, which walks away from the callers, and returns no per-node depth. We say this
+rather than listing BFS as the implementation, because the honest version is checkable and the
+flattering one is not.
 
 Data is entirely synthetic from a fixed RNG seed: 40 services, 100 dependency edges, 241 commits,
 70 deploys, 90 alerts, 68 resolved incidents. Re-seeding reproduces it exactly, which matters

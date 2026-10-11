@@ -167,12 +167,16 @@ strings are unrelated; the topology is what matches.
 
 ## Graph algorithms used
 
-| Algorithm | Where | Why not plain Cypher |
+| Algorithm | Where it runs | Why |
 |---|---|---|
-| `algo.BFS` | blast radius | Depth-bounded reachability over one edge type is exactly the primitive. |
-| `algo.SPpaths` | culprit → most important broken service | Returns the path object with a weight; weighted by `calls_per_min`, so the rendered path carries real traffic. |
-| `algo.betweenness` | chokepoint score, computed once at seed time | Breaks ties in `upstream_candidates` with a structural fact. |
-| `algo.WCC` | fixture sanity check | An orphan service would make a demo query return empty for reasons that look like an agent bug. |
+| `algo.betweenness` | `seed.py`, once at seed time | Chokepoint score per service, stored on `Service.betweenness` and used as the last ordering key in `upstream_candidates`. Computed, not guessed. |
+| `algo.WCC` | `verify.py` | Asserts the seeded mesh is one component — an orphan service would make a demo query return empty for reasons that look like an agent bug. |
+| `algo.BFS` | `verify.py` | Cross-checks the variable-length traversal and pins FalkorDB's documented-but-false depth-0 behaviour. **Not** used for blast radius: BFS follows edges in their stored direction, which with `(caller)-[:DEPENDS_ON]->(callee)` walks away from the callers, and it returns no per-node depth. |
+| `db.idx.vector.queryNodes` | `verify.py` | Proves the `Plan.embedding` index works and that `score` is a distance, not a similarity. |
+
+Blast radius and the dependency cone are variable-length pattern matches rather than algorithm
+calls, for the direction and depth reasons above. `docs/queries.md` has every query verbatim, and
+a test asserts the document matches the code.
 
 ## Data
 
@@ -200,7 +204,7 @@ upgrade breaks a test instead of the demo. Details in [docs/decisions.md](docs/d
 - `algo.BFS` at **depth 0 reaches nothing**, though the docs say 0 means unlimited — it returns
   an empty blast radius with no error.
 - `algo.BFS` **excludes its source node**, and takes positional arguments only (no config map,
-  unlike `algo.WCC` and `algo.SPpaths`).
+  unlike `algo.WCC`).
 - A named variable-length relationship binds to a **Path, not a list**: `ALL(d IN deps …)` and
   `size(deps)` raise; use `relationships(deps)` and `length(deps)`.
 - Variable-length **bounds cannot be parameterised** — `*1..$hops` raises.
