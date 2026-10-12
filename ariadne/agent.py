@@ -169,7 +169,10 @@ def investigate(
                    "hypothesis": memory.get("hypothesis")},
     })
 
-    final_text = ""
+    # Every text block in order, not just the last one. The model often writes the verdict
+    # *before* calling record_outcome and then adds a one-line closer after it; keeping only
+    # the last block showed the closer and threw the verdict away.
+    texts: list[str] = []
     with T.bind(a, run):
         runner = client.beta.messages.tool_runner(
             model=MODEL,
@@ -195,7 +198,7 @@ def investigate(
             })
             for block in message.content:
                 if block.type == "text" and block.text.strip():
-                    final_text = block.text
+                    texts.append(block.text.strip())
                     if verbose:
                         print(f"  · {block.text.strip()[:160]}")
                     emit("text", {"text": block.text})
@@ -206,6 +209,7 @@ def investigate(
                                   "rows": run.calls[-1].rows if run.calls else None,
                                   "ms": run.calls[-1].ms if run.calls else None})
 
+    final_text = "\n\n".join(texts)
     run.finish()
     _attach_verdict(a, run, alert)
     if ledger:

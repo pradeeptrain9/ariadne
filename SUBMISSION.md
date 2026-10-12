@@ -96,19 +96,19 @@ connector would have cost a day and proved nothing about either.
 
 ## What the memory is worth
 
-Same alerts, same graph, memory withheld versus available — measured on `claude-opus-5`,
-before the project moved to `claude-sonnet-5` for cost. Not yet re-measured on Sonnet 5; the
-ratio is the claim and should carry across models, but these numbers are labelled as what was
-actually run:
+Same alerts, same graph, memory withheld versus available, on `claude-sonnet-5`:
 
 | | tool calls | tokens | cost | wall |
 |---|---|---|---|---|
-| cold | 8.0 | 36,017 | $0.1281 | 32.9s |
-| warm | 4.0 | 25,288 | $0.0677 | 19.3s |
+| cold (memory withheld) | 7.0 | 36,320 | $0.0503 | 28.0s |
+| warm (memory available) | 4.0 | 25,867 | $0.0273 | 16.2s |
 
-**1.9× cheaper, 2× fewer tool calls, the same culprit commit on every alert.** Warm runs reported
-*higher* confidence (0.72–0.80 vs 0.45–0.55), because the recalled hypothesis corroborates what
-the current window shows. Raw ledger and per-run detail: `docs/measurements/`.
+**1.8× cheaper, 1.8× fewer tool calls, the same culprit commit on every alert.** Warm runs
+reported higher confidence, because the recalled hypothesis corroborates what the current window
+shows. Raw ledger and per-run detail: `docs/measurements/`.
+
+The same comparison on `claude-opus-5` measured 1.9× (cold $0.1281, warm $0.0677). We moved to
+Sonnet 5 for cost and the ratio held, which is why the claim is a ratio and not a price.
 
 ### It did not work the first time
 
@@ -189,7 +189,8 @@ cross-service plan transfer, for which the data is already in the graph.
 - **Rule 10 — artifacts:** public repo, README with setup and the graph model, the Cypher and
   algorithms the product depends on (`docs/queries.md`), demo video, local setup instructions,
   tracks named.
-- **Rule 11 — AI disclosure:** built with Claude Code (`claude-opus-5`) — design notes, the
+- **Rule 11 — AI disclosure:** built with Claude Code (`claude-opus-5`); the agent itself
+  runs on `claude-sonnet-5` — design notes, the
   seeder, tools, agent loop, tests and this document. Every FalkorDB behaviour in
   `docs/decisions.md` was established by running queries against a live instance, not taken from
   the model's or the documentation's word.

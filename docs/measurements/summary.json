@@ -1,21 +1,21 @@
 {
   "cold": {
-    "runs": 4,
-    "mean_tool_calls": 8.0,
-    "mean_tokens": 36017,
-    "mean_cost_usd": 0.1281,
-    "mean_wall_ms": 32945
+    "runs": 3,
+    "mean_tool_calls": 7.0,
+    "mean_tokens": 36320,
+    "mean_cost_usd": 0.0503,
+    "mean_wall_ms": 27982
   },
   "warm": {
-    "runs": 6,
+    "runs": 3,
     "mean_tool_calls": 4.0,
-    "mean_tokens": 25288,
-    "mean_cost_usd": 0.0677,
-    "mean_wall_ms": 19293
+    "mean_tokens": 25867,
+    "mean_cost_usd": 0.0273,
+    "mean_wall_ms": 16228
   },
   "models": [
-    "claude-opus-5"
+    "claude-sonnet-5"
   ],
-  "cost_ratio": 1.9,
-  "call_ratio": 2.0
+  "cost_ratio": 1.8,
+  "call_ratio": 1.8
 }

@@ -93,36 +93,36 @@ the same block with absolute paths in `claude_desktop_config.json`.
 
 ## What the memory is worth
 
-Measured on `claude-opus-5`, same alerts in both arms:
+Measured on `claude-sonnet-5`, same alerts in both arms:
 
 | | tool calls | tokens | cost | wall |
 |---|---|---|---|---|
-| cold (memory withheld) | 8.0 | 36,017 | $0.1281 | 33.0s |
-| warm (memory available) | 4.0 | 25,261 | $0.0681 | 18.9s |
+| cold (memory withheld) | 7.0 | 36,320 | $0.0503 | 28.0s |
+| warm (memory available) | 4.0 | 25,867 | $0.0273 | 16.2s |
 
-> **Model note.** The measurements below were taken on `claude-opus-5`. The project is now
-> configured for `claude-sonnet-5` ($2/$10 per MTok against Opus's $5/$25) and has **not** been
-> re-measured on it. The cold-vs-warm *ratio* is the claim and should carry across models, but it
-> has not been verified on Sonnet 5 — so these are labelled as what they are.
-
-**1.9× cheaper, 2× fewer tool calls, same culprit commit on every alert.** Warm runs also
-reported *higher* confidence (0.72–0.80 vs 0.45–0.55), because the recalled hypothesis
-corroborates what the current window shows.
+**1.8× cheaper, 1.8× fewer tool calls, same culprit commit on every alert.** Warm runs also
+report higher confidence, because the recalled hypothesis corroborates what the current window
+shows.
 
 The comparison is the same alerts against the same graph, not a warm run on one alert versus a
 cold run on another — that would measure the alerts. `replay.py` asserts the warm arm reached the
-same culprit as the cold arm; a cheap wrong answer is worse than an expensive right one.
+same culprit as the cold arm and exits non-zero otherwise; a cheap wrong answer is worse than an
+expensive right one.
 
-Honest caveat: **the first design of this measured 1.1×, not 1.9×.** The plan stored a transcript
-of the whole investigation, so replaying it was the same work — memory that replays everything
-saves nothing. What fixed it was making `recall_plan` return a *hypothesis* computed from the
-graph ("in 13 of 13 prior incidents of this shape, the cause was a commit in a deploy that
-touched the failing service itself") bundled with the current impact, owner and runbook. A hit
-then leaves exactly one thing to establish, and the warm path is 4 calls instead of 8. The
-failure and the fix are both in `docs/walkthrough.md`.
+Honest caveat: **the first design of this measured 1.1×.** The plan stored a transcript of the
+whole investigation, so replaying it was the same work — memory that replays everything saves
+nothing. What fixed it was making `recall_plan` return a *hypothesis* computed from the graph
+("in 13 of 13 prior incidents of this shape, the cause was a commit in a deploy that touched the
+failing service itself") bundled with the current impact, owner and runbook. A hit then leaves
+exactly one thing to establish, and the warm path is 4 calls instead of 7. The failure and the
+fix are both in `docs/walkthrough.md`.
 
-Prompt caching is verified rather than assumed — `--check-cache` writes 3,214 tokens on the first
-call and reads all 3,214 back on the second.
+The same comparison on `claude-opus-5` measured 1.9× (cold $0.1281, warm $0.0677) before the
+project moved to Sonnet 5 for cost. The ratio survived the model change, which is the point of
+measuring a ratio rather than an absolute.
+
+Prompt caching is verified rather than assumed — `--check-cache` writes the prefix on the first
+call and reads all of it back on the second.
 
 ## Demo
 

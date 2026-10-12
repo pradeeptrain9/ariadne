@@ -4,10 +4,9 @@ Target **2:30**, hard cap 3:00. Screen recording with voiceover; no slides, no i
 one title frame. Judges watch a lot of these, so the first fifteen seconds have to contain the
 idea.
 
-**This costs money to record.** Each live investigation is a real API call. On
-`claude-sonnet-5` (the configured model) expect roughly warm ≈ $0.03, cold ≈ $0.05 — the script
-below runs three, so ≈ **$0.12** a take, call it $0.40 for three takes. Those are estimates
-scaled from the Opus 5 measurements; the first recorded run will tell you the real figure.
+**This costs money to record.** Each live investigation is a real API call. Measured on
+`claude-sonnet-5`: warm $0.0273, cold $0.0503. The script below runs three, so ≈ **$0.13** a
+take — call it $0.40 for three takes.
 
 ## Before recording
 
@@ -59,7 +58,7 @@ On the verdict, land on the honesty beat — this is the moment that separates t
 > "And it says what it did *not* establish: two commits tie on overlap, so it refuses to pick
 > between them, and it flags a shared-library commit that its own ranking scores low."
 
-End shot on the counter: **8 tool calls, $0.13**.
+End shot on the counter: **7 tool calls, $0.05**.
 
 **3 · 1:05–1:40 — the same alert, with memory**
 
@@ -73,7 +72,7 @@ Point at the memory-hit line as it appears:
 > failing service itself. That hypothesis is computed from the graph — it's not the model
 > recalling something."
 
-> "So there's one thing left to check. Four tool calls instead of eight. Half the cost. Same
+> "So there's one thing left to check. Four tool calls instead of seven. Half the cost. Same
 > culprit commit — and higher confidence, because the history agrees with the window."
 
 Let the cold/warm bars update on screen. Pause a beat on them.

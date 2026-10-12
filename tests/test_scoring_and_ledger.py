@@ -134,3 +134,18 @@ def test_compare_handles_one_sided_ledgers():
                     "wall_ms": 1}])
     assert out["warm"]["runs"] == 0
     assert "cost_ratio" not in out
+
+
+def test_verdict_keeps_every_text_block():
+    """The model often writes the verdict before record_outcome and a short closer after it.
+    Keeping only the last block showed "Summary above stands" and dropped the actual verdict."""
+    import ast
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "ariadne" / "agent.py"
+    tree = ast.parse(src.read_text())
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "investigate")
+    body = ast.unparse(fn)
+    assert "texts.append" in body, "text blocks must be accumulated"
+    assert "join(texts)" in body, "the verdict must join every block, not take the last"
