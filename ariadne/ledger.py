@@ -15,23 +15,39 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any
 
-# USD per million tokens, claude-opus-5.
-PRICE_INPUT = 5.00
-PRICE_OUTPUT = 25.00
-PRICE_CACHE_WRITE = 6.25   # 1.25x input
-PRICE_CACHE_READ = 0.50    # 0.1x input
+#: USD per million tokens. Cache write is 1.25x input, cache read 0.1x input.
+#: Listed per model rather than as four module constants, because a ledger that does not say
+#: which model produced a number is not evidence of anything — and the first version of this
+#: file had Opus prices hardcoded while the model id lived in another module.
+PRICES: dict[str, dict[str, float]] = {
+    "claude-opus-5":   {"input": 5.00, "output": 25.00, "cache_write": 6.25, "cache_read": 0.50},
+    "claude-sonnet-5": {"input": 2.00, "output": 10.00, "cache_write": 2.50, "cache_read": 0.20},
+    "claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cache_write": 1.25, "cache_read": 0.10},
+}
 
+DEFAULT_MODEL = "claude-sonnet-5"
 LEDGER_PATH = Path("runs.jsonl")
 
 
+def prices_for(model: str) -> dict[str, float]:
+    try:
+        return PRICES[model]
+    except KeyError:
+        raise KeyError(
+            f"no prices recorded for {model!r}; add it to ledger.PRICES so costs stay real"
+        ) from None
+
+
 def cost_usd(
-    *, input_tokens: int, output_tokens: int, cache_write: int = 0, cache_read: int = 0
+    *, input_tokens: int, output_tokens: int, cache_write: int = 0, cache_read: int = 0,
+    model: str = DEFAULT_MODEL,
 ) -> float:
+    p = prices_for(model)
     return (
-        input_tokens * PRICE_INPUT
-        + output_tokens * PRICE_OUTPUT
-        + cache_write * PRICE_CACHE_WRITE
-        + cache_read * PRICE_CACHE_READ
+        input_tokens * p["input"]
+        + output_tokens * p["output"]
+        + cache_write * p["cache_write"]
+        + cache_read * p["cache_read"]
     ) / 1_000_000
 
 
@@ -74,6 +90,7 @@ class Run:
     signature: str
     mode: str  # "cold" | "warm"
     effort: str
+    model: str = DEFAULT_MODEL
     input_tokens: int = 0
     output_tokens: int = 0
     cache_write: int = 0
@@ -116,6 +133,7 @@ class Run:
             output_tokens=self.output_tokens,
             cache_write=self.cache_write,
             cache_read=self.cache_read,
+            model=self.model,
         )
 
     @property
@@ -138,7 +156,7 @@ class Run:
 
     def summary(self) -> str:
         return (
-            f"{self.mode:4} effort={self.effort:4} "
+            f"{self.mode:4} {self.model} effort={self.effort:4} "
             f"{self.tool_calls:2d} tool calls  {self.turns:2d} turns  "
             f"{self.tokens:7,d} tok  (cache read {self.cache_read:,d})  "
             f"${self.cost:.4f}  {self.wall_ms:,d}ms"
@@ -169,7 +187,11 @@ def compare(runs: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     c, w = agg(cold), agg(warm)
-    out = {"cold": c, "warm": w}
+    models = sorted({r.get("model", "unknown") for r in runs})
+    out: dict[str, Any] = {"cold": c, "warm": w, "models": models}
+    if len(models) > 1:
+        # Mixing models makes the ratio meaningless — say so rather than printing a number.
+        out["warning"] = f"ledger mixes models {models}; re-run both arms on one model"
     if c.get("runs") and w.get("runs") and w["mean_cost_usd"]:
         out["cost_ratio"] = round(c["mean_cost_usd"] / w["mean_cost_usd"], 1)
         out["call_ratio"] = round(c["mean_tool_calls"] / max(0.1, w["mean_tool_calls"]), 1)

@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import json
 
-from ariadne.ledger import Run, ToolCall, compare, cost_usd
+import pytest
+
+from ariadne.ledger import PRICES, Run, ToolCall, compare, cost_usd
 from ariadne.scoring import FLOOR, CEILING, confidence, explain
 
 
@@ -48,11 +50,48 @@ def test_explain_exposes_every_term():
 
 
 def test_cost_arithmetic():
-    # 1M input at $5 plus 1M output at $25
-    assert cost_usd(input_tokens=1_000_000, output_tokens=0) == 5.0
-    assert cost_usd(input_tokens=0, output_tokens=1_000_000) == 25.0
+    assert cost_usd(input_tokens=1_000_000, output_tokens=0, model="claude-sonnet-5") == 2.0
+    assert cost_usd(input_tokens=0, output_tokens=1_000_000, model="claude-sonnet-5") == 10.0
     # cache reads are a tenth of input
-    assert cost_usd(input_tokens=0, output_tokens=0, cache_read=1_000_000) == 0.5
+    assert cost_usd(input_tokens=0, output_tokens=0, cache_read=1_000_000,
+                    model="claude-sonnet-5") == 0.2
+
+
+def test_prices_exist_for_the_configured_model():
+    """A ledger that cannot price the model it ran on produces numbers that mean nothing."""
+    from ariadne.agent import MODEL
+    assert MODEL in PRICES, f"{MODEL} has no prices in ledger.PRICES"
+
+
+def test_cache_prices_follow_the_published_multipliers():
+    for model, p in PRICES.items():
+        assert p["cache_write"] == pytest.approx(p["input"] * 1.25), model
+        assert p["cache_read"] == pytest.approx(p["input"] * 0.1), model
+
+
+def test_unknown_model_refuses_to_guess():
+    with pytest.raises(KeyError, match="no prices recorded"):
+        cost_usd(input_tokens=1, output_tokens=1, model="some-new-model")
+
+
+def test_runs_carry_their_model():
+    r = Run(alert_id="a", signature="s", mode="cold", effort="high", model="claude-opus-5")
+    r.add_usage(_Usage(1_000_000, 0))
+    assert r.cost == 5.0
+    assert r.as_dict()["model"] == "claude-opus-5"
+
+
+def test_compare_flags_a_ledger_that_mixes_models():
+    """Averaging a cheap model against an expensive one is not a memory measurement."""
+    rows = [
+        {"mode": "cold", "model": "claude-opus-5", "tool_calls": 8, "total_tokens": 1,
+         "cost_usd": 0.13, "wall_ms": 1},
+        {"mode": "warm", "model": "claude-sonnet-5", "tool_calls": 4, "total_tokens": 1,
+         "cost_usd": 0.03, "wall_ms": 1},
+    ]
+    out = compare(rows)
+    assert out["models"] == ["claude-opus-5", "claude-sonnet-5"]
+    assert "warning" in out and "mixes models" in out["warning"]
 
 
 class _Usage:

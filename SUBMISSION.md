@@ -70,7 +70,7 @@ around the service, which the text never mentions. The vector index is in the de
 
 ## How we built it
 
-Python 3.11, FalkorDB in Docker, the Anthropic SDK's tool runner, `claude-opus-5`. Nine tools,
+Python 3.11, FalkorDB in Docker, the Anthropic SDK's tool runner, `claude-sonnet-5`. Nine tools,
 each a thin wrapper over one Cypher query. One registry, two transports: the same functions are
 served over MCP (stdio, read-only by default), and a test asserts the two surfaces cannot drift.
 
@@ -96,7 +96,10 @@ connector would have cost a day and proved nothing about either.
 
 ## What the memory is worth
 
-Same alerts, same graph, memory withheld versus available:
+Same alerts, same graph, memory withheld versus available — measured on `claude-opus-5`,
+before the project moved to `claude-sonnet-5` for cost. Not yet re-measured on Sonnet 5; the
+ratio is the claim and should carry across models, but these numbers are labelled as what was
+actually run:
 
 | | tool calls | tokens | cost | wall |
 |---|---|---|---|---|

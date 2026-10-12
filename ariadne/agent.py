@@ -34,7 +34,9 @@ from .ledger import Run, LEDGER_PATH
 from .scoring import explain
 from .signature import signature_of
 
-MODEL = "claude-opus-5"
+#: Sonnet 5: adaptive thinking and the full effort range, at 2.5x less than Opus 5. Prices for
+#: whatever is set here must exist in `ledger.PRICES`, or the ledger refuses to cost the run.
+MODEL = "claude-sonnet-5"
 MAX_TOKENS = 16_000
 MAX_ITERATIONS = 24
 
@@ -148,7 +150,8 @@ def investigate(
     mode = force_mode or ("warm" if memory.get("found") else "cold")
     effort = EFFORT[mode]
 
-    run = Run(alert_id=alert["id"], signature=signature, mode=mode, effort=effort)
+    run = Run(alert_id=alert["id"], signature=signature, mode=mode, effort=effort,
+              model=MODEL)
 
     def emit(kind: str, payload: dict[str, Any]) -> None:
         if on_event is not None:
@@ -156,10 +159,10 @@ def investigate(
 
     if verbose:
         print(f"alert {alert['id']} on {alert['service']}  sig={signature}  "
-              f"mode={mode}  effort={effort}")
+              f"mode={mode}  effort={effort}  model={MODEL}")
     emit("start", {
         "alert": alert, "signature": signature, "shape": shape.as_dict(),
-        "mode": mode, "effort": effort,
+        "mode": mode, "effort": effort, "model": MODEL,
         "memory": {"found": bool(memory.get("found")),
                    "plan": memory.get("plan"),
                    "runs": memory.get("runs"),

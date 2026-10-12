@@ -4,8 +4,17 @@ Raw ledger: `runs.jsonl` in this directory, written by `python -m ariadne.replay
 by runs driven from the demo page. Every number in the README and the submission comes
 from this file; none is typed by hand.
 
-Model `claude-opus-5`. Cold = memory withheld, warm = memory available, **same alerts**
-in both arms against the same deterministic graph.
+Model **`claude-opus-5`** — every run below was made on Opus 5, and each row in `runs.jsonl`
+now records its own model so a mixed ledger can never be averaged into a meaningless ratio
+(`ledger.compare` emits a warning instead).
+
+**The project has since been switched to `claude-sonnet-5`** for cost. These numbers have not
+been re-measured on Sonnet 5 yet, so read them as Opus 5 results. The ratio is the claim and it
+should hold across models, but "should" is not "measured" and this file only contains what was
+actually run.
+
+Cold = memory withheld, warm = memory available, **same alerts** in both arms against the same
+deterministic graph.
 
 | mode | runs | tool calls | tokens | cost | wall |
 |---|---|---|---|---|---|

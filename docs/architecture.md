@@ -80,11 +80,12 @@ not merely cheaper. Both levers appear in the chart legend so the saving is attr
 part memory, part effort.
 
 **Ledger.** Every turn's `usage` is appended to `runs.jsonl`: input, output, cache read, cache
-write, tool count, wall ms, mode (cold/warm), incident id, and cost computed at Claude Opus 5
-rates ($5/MTok input, $25/MTok output). The chart is generated from that file. No number in the
+write, tool count, wall ms, mode (cold/warm), model, incident id, and cost computed from that model's own prices
+in `ledger.PRICES` (Sonnet 5: $2/$10 per MTok). The model is recorded per run, and
+`ledger.compare` refuses to present a ratio from a ledger that mixes models. The chart is generated from that file. No number in the
 submission is typed by hand.
 
-Model: `claude-opus-5`, adaptive thinking (the default; `budget_tokens` does not exist on this
+Model: `claude-sonnet-5`, adaptive thinking (the default; `budget_tokens` does not exist on this
 model). Streaming for the investigation path so the demo can show tool calls arriving live.
 
 ## Memory lifecycle

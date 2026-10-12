@@ -13,6 +13,9 @@
     "mean_cost_usd": 0.0677,
     "mean_wall_ms": 19293
   },
+  "models": [
+    "claude-opus-5"
+  ],
   "cost_ratio": 1.9,
   "call_ratio": 2.0
 }

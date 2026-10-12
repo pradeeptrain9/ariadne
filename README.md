@@ -93,12 +93,17 @@ the same block with absolute paths in `claude_desktop_config.json`.
 
 ## What the memory is worth
 
-Measured, `claude-opus-5`, same alerts in both arms:
+Measured on `claude-opus-5`, same alerts in both arms:
 
 | | tool calls | tokens | cost | wall |
 |---|---|---|---|---|
 | cold (memory withheld) | 8.0 | 36,017 | $0.1281 | 33.0s |
 | warm (memory available) | 4.0 | 25,261 | $0.0681 | 18.9s |
+
+> **Model note.** The measurements below were taken on `claude-opus-5`. The project is now
+> configured for `claude-sonnet-5` ($2/$10 per MTok against Opus's $5/$25) and has **not** been
+> re-measured on it. The cold-vs-warm *ratio* is the claim and should carry across models, but it
+> has not been verified on Sonnet 5 — so these are labelled as what they are.
 
 **1.9× cheaper, 2× fewer tool calls, same culprit commit on every alert.** Warm runs also
 reported *higher* confidence (0.72–0.80 vs 0.45–0.55), because the recalled hypothesis

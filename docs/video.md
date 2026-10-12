@@ -4,9 +4,10 @@ Target **2:30**, hard cap 3:00. Screen recording with voiceover; no slides, no i
 one title frame. Judges watch a lot of these, so the first fifteen seconds have to contain the
 idea.
 
-**This costs money to record.** Each live investigation is a real API call: warm ≈ $0.07, cold
-≈ $0.13. The script below runs three (one warm, one cold, one novel-shape) ≈ **$0.30**, plus
-retakes. Budget ~$1 if you expect three takes.
+**This costs money to record.** Each live investigation is a real API call. On
+`claude-sonnet-5` (the configured model) expect roughly warm ≈ $0.03, cold ≈ $0.05 — the script
+below runs three, so ≈ **$0.12** a take, call it $0.40 for three takes. Those are estimates
+scaled from the Opus 5 measurements; the first recorded run will tell you the real figure.
 
 ## Before recording
 
