@@ -17,15 +17,15 @@ Coordination**.
 |---|---|
 | Graph, schema, deterministic seed, verification | done |
 | Nine graph tools, confidence scoring, cost ledger | done |
-| Agent loop (tool runner, caching, effort policy) | written; **unrun** — needs an API key |
-| Cold-vs-warm measurement harness | written; unrun |
+| Agent loop (tool runner, caching, effort policy) | run — six investigations in `runs.jsonl` |
+| Cold-vs-warm measurement harness | run at **3 alerts per arm**; the ledger holds those six runs |
 | MCP server (stdio, read-only by default) | done |
 | Demo page with live streaming run | done |
 | Submission write-up, measurements, video shot list | done |
 | Demo video | not recorded |
 
-Everything below is measured, not projected — 56 tests, and the numbers come out of
-`runs.jsonl`.
+Everything below is measured, not projected — 89 tests, and the numbers come out of
+`runs.jsonl`. The sample is small: three alerts per arm, stated wherever the ratio is.
 
 **Timeline disclosure:** the hackathon window is Oct 15–18. The design notes in `docs/` and the
 graph/seed/verification code in `ariadne/` were written on **Oct 11**, before the window opened —
@@ -54,7 +54,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m ariadne.seed          # deterministic graph + fixtures/scenarios.json
 .venv/bin/python -m ariadne.verify        # graph correctness, prints every number it found
-.venv/bin/python -m pytest -q             # 56 tests, no API key needed
+.venv/bin/python -m pytest -q             # 89 tests, no API key needed
 ```
 
 Verified from a clean clone on a fresh virtualenv, in that order. The install also puts
@@ -93,16 +93,17 @@ the same block with absolute paths in `claude_desktop_config.json`.
 
 ## What the memory is worth
 
-Measured on `claude-sonnet-5`, same alerts in both arms:
+Measured on `claude-sonnet-5`, same alerts in both arms, **three alerts per arm** (six runs):
 
-| | tool calls | tokens | cost | wall |
-|---|---|---|---|---|
-| cold (memory withheld) | 7.0 | 36,320 | $0.0503 | 28.0s |
-| warm (memory available) | 4.0 | 25,867 | $0.0273 | 16.2s |
+| | runs | tool calls | tokens | cost | wall |
+|---|---|---|---|---|---|
+| cold (memory withheld) | 3 | 7.0 | 36,320 | $0.0503 | 28.0s |
+| warm (memory available) | 3 | 4.0 | 25,867 | $0.0273 | 16.2s |
 
 **1.8× cheaper, 1.8× fewer tool calls, same culprit commit on every alert.** Warm runs also
 report higher confidence, because the recalled hypothesis corroborates what the current window
-shows.
+shows. Three alerts per arm is a small sample — it is the ledger's whole contents, and
+`python -m ariadne.replay --n 20` widens it.
 
 The comparison is the same alerts against the same graph, not a warm run on one alert versus a
 cold run on another — that would measure the alerts. `replay.py` asserts the warm arm reached the

@@ -324,7 +324,7 @@ function renderVerdict(md) {
 
 /* ---------- ledger ------------------------------------------------------- */
 async function loadLedger() {
-  const { summary } = await (await fetch("/api/ledger")).json();
+  const { summary, source, live } = await (await fetch("/api/ledger")).json();
   const arms = ["cold", "warm"].filter((m) => summary[m] && summary[m].runs);
   if (!arms.length) { $("bars").innerHTML = `<p class="hint">No runs recorded yet.</p>`; return; }
   const max = Math.max(...arms.map((m) => summary[m].mean_cost_usd));
@@ -336,10 +336,13 @@ async function loadLedger() {
       <span class="n">$${a.mean_cost_usd.toFixed(4)} · ${a.mean_tool_calls} calls</span>
     </div>`;
   }).join("");
+  // Which file these numbers came from, always — the shipped measurements and a run on this
+  // machine must never be mistakable for each other.
+  const from = live ? "measured on this machine" : `from ${source}`;
   $("ratio").textContent = summary.cost_ratio
     ? `${summary.cost_ratio}× cheaper and ${summary.call_ratio}× fewer tool calls when memory is available `
-      + `(${summary.cold.runs} cold runs, ${summary.warm.runs} warm, same alerts).`
-    : "Run both arms to get a ratio.";
+      + `(${summary.cold.runs} cold runs, ${summary.warm.runs} warm, same alerts, ${from}).`
+    : `Run both arms to get a ratio (${from}).`;
 }
 
 /* ---------- run ---------------------------------------------------------- */

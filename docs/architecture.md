@@ -10,7 +10,7 @@ served over two transports (in-process for the agent, MCP stdio for external cli
  signature.py ──── deterministic structural fingerprint (no model involved)
       │
       ▼
-  agent.py ─── client.beta.messages.tool_runner(model="claude-opus-5", tools=REGISTRY)
+  agent.py ─── client.beta.messages.tool_runner(model="claude-sonnet-5", tools=REGISTRY)
       │                    │
       │                    ├── recall_plan ──────┐
       │                    ├── upstream_candidates│

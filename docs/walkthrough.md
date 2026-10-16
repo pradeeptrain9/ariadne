@@ -195,14 +195,15 @@ turns an open-ended search into a single hypothesis test, and bundles four looku
 Three separable effects, and the chart attributes them separately rather than claiming all of it
 for the memory:
 
-1. **Fewer tool calls.** A cold investigation runs 12–15; a replay runs 3–5. Fewer round trips,
-   fewer tool results in context. This is the memory.
+1. **Fewer tool calls.** Measured: a cold investigation runs 7, a replay runs 4. Fewer round
+   trips, fewer tool results in context. This is the memory.
 2. **Lower effort.** `output_config.effort` is `high` cold, `low` on replay — a replay follows a
    known sequence rather than reasoning from scratch, so low effort is *correct* there, not just
    cheaper.
 3. **Prompt caching.** Tool definitions, system prompt and the frozen schema block are the stable
-   prefix; the alert payload goes after the last breakpoint. Verified, not assumed — a test
-   asserts `cache_read_input_tokens > 0` on the second call of a session, because a stray
+   prefix; the alert payload goes after the last breakpoint. Verified, not assumed —
+   `python -m ariadne.agent --check-cache` writes the prefix on one call and reads all of it back
+   on the next, and a test asserts the breakpoint is still on the last tool definition. A stray
    timestamp in the system prompt would silently invalidate the prefix and the headline number
    would quietly be wrong.
 

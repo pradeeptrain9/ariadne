@@ -27,6 +27,23 @@ from .graph import Ariadne
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
+#: The runs committed to the repo, used when this machine has not measured anything yet.
+SHIPPED_LEDGER = Path(__file__).resolve().parent.parent / "docs" / "measurements" / "runs.jsonl"
+
+
+def ledger_rows() -> tuple[Path, list[dict[str, Any]]]:
+    """This session's ledger if it holds anything, else the measurements the repo ships.
+
+    A fresh clone has no `runs.jsonl`, so the cold-vs-warm panel opened empty until the judge had
+    both an API key and two completed arms. The payload names the file it read, and the page says
+    so: pre-recorded numbers shown as if they were from this machine would be a lie, and the
+    whole point of the ledger is that no number is asserted without a file behind it.
+    """
+    rows = L.load()
+    if rows:
+        return L.LEDGER_PATH, rows
+    return SHIPPED_LEDGER, L.load(SHIPPED_LEDGER)
+
 
 def graph_payload(a: Ariadne) -> dict[str, Any]:
     """The mesh, for drawing. Small enough to send whole."""
@@ -117,8 +134,11 @@ class Handler(BaseHTTPRequestHandler):
             elif route.path == "/api/alerts":
                 self._json(demo_alerts(self._graph))
             elif route.path == "/api/ledger":
-                rows = L.load()
-                self._json({"runs": rows, "summary": L.compare(rows)})
+                source, rows = ledger_rows()
+                self._json({"runs": rows, "summary": L.compare(rows),
+                            "source": source.name if source == L.LEDGER_PATH
+                                      else "docs/measurements/runs.jsonl",
+                            "live": source == L.LEDGER_PATH})
             elif route.path == "/api/investigate":
                 self._stream(query.get("alert", [""])[0], query.get("mode", [None])[0])
             else:

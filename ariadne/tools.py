@@ -37,20 +37,36 @@ MAX_HOPS = 5
 class ToolContext:
     graph: Ariadne
     run: Run | None = None
+    #: Called with each ToolCall once the tool body has returned. The demo's event stream uses
+    #: it: row counts and latencies only exist *after* execution, so they cannot be read off the
+    #: assistant message that requested the call.
+    on_call: Callable[[ToolCall], None] | None = None
+    _order: int = 0
+
+    def next_order(self) -> int:
+        """Position of the call about to be recorded."""
+        return len(self.run.calls) if self.run is not None else self._order
 
 
 _CTX: ContextVar[ToolContext | None] = ContextVar("ariadne_tool_ctx", default=None)
 
 
 @contextmanager
-def bind(graph: Ariadne, run: Run | None = None) -> Iterator[ToolContext]:
+def bind(
+    graph: Ariadne,
+    run: Run | None = None,
+    on_call: Callable[[ToolCall], None] | None = None,
+) -> Iterator[ToolContext]:
     """Make a graph (and optionally a ledger Run) visible to the tools.
 
     The graph cannot be a tool argument — the model must not be able to choose which database it
     talks to, and the generated tool schema should contain only things the model legitimately
     decides.
+
+    `on_call` receives each completed ToolCall, which is how the demo streams a tool's real row
+    count and duration.
     """
-    ctx = ToolContext(graph=graph, run=run)
+    ctx = ToolContext(graph=graph, run=run, on_call=on_call)
     token = _CTX.set(ctx)
     try:
         yield ctx
@@ -91,17 +107,22 @@ def _recorded(name: str, args: dict[str, Any], fn: Callable[[Ariadne], Any]) -> 
         ok, error = False, str(exc)
         raise
     finally:
-        if ctx.run is not None:
+        if ctx.run is not None or ctx.on_call is not None:
             if isinstance(out, dict) and "rows" in out:
                 rows = len(out["rows"])
             elif isinstance(out, list):
                 rows = len(out)
             else:
                 rows = 0 if out is None else 1
-            ctx.run.add_call(ToolCall(
-                order=len(ctx.run.calls), tool=name, args=args, rows=rows,
+            call = ToolCall(
+                order=ctx.next_order(), tool=name, args=args, rows=rows,
                 ms=int((time.perf_counter() - started) * 1000), ok=ok, error=error,
-            ))
+            )
+            ctx._order = call.order + 1
+            if ctx.run is not None:
+                ctx.run.add_call(call)
+            if ctx.on_call is not None:
+                ctx.on_call(call)
 
 
 def _hops(n: int) -> int:

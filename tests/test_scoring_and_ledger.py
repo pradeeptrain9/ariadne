@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from ariadne import ledger as L
 from ariadne.ledger import PRICES, Run, ToolCall, compare, cost_usd
 from ariadne.scoring import FLOOR, CEILING, confidence, explain
 
@@ -149,3 +150,41 @@ def test_verdict_keeps_every_text_block():
     body = ast.unparse(fn)
     assert "texts.append" in body, "text blocks must be accumulated"
     assert "join(texts)" in body, "the verdict must join every block, not take the last"
+
+
+# --- demo ledger source ---------------------------------------------------------------
+
+
+def test_demo_prefers_a_local_ledger_and_falls_back_to_the_shipped_one(tmp_path, monkeypatch):
+    """The cold-vs-warm panel must never open empty on a fresh clone, and must never present the
+    committed measurements as if they had been produced on this machine."""
+    from ariadne import server
+
+    monkeypatch.chdir(tmp_path)
+
+    source, rows = server.ledger_rows()
+    assert source == server.SHIPPED_LEDGER, "no local ledger: should read the committed runs"
+    assert rows, "the repo ships measurements; the fallback found none"
+    assert {r["mode"] for r in rows} == {"cold", "warm"}
+
+    (tmp_path / "runs.jsonl").write_text(json.dumps({
+        "alert_id": "a", "signature": "s", "mode": "cold", "effort": "high",
+        "model": "claude-sonnet-5", "tool_calls": 7, "total_tokens": 1,
+        "cost_usd": 0.01, "wall_ms": 1,
+    }) + "\n")
+    source, rows = server.ledger_rows()
+    assert source == L.LEDGER_PATH and len(rows) == 1, "a local run must win over the shipped file"
+
+
+def test_shipped_measurements_match_the_published_summary():
+    """`docs/measurements/summary.json` is generated from `runs.jsonl`; a hand-edited number
+    there would be exactly the kind of typed-in figure this project claims never to have."""
+    from ariadne import server
+
+    rows = L.load(server.SHIPPED_LEDGER)
+    published = json.loads(
+        (server.SHIPPED_LEDGER.parent / "summary.json").read_text()
+    )
+    computed = L.compare(rows)
+    for key in ("cold", "warm", "cost_ratio", "call_ratio", "models"):
+        assert computed[key] == published[key], key

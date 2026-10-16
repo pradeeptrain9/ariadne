@@ -55,6 +55,36 @@ def test_calls_are_recorded_on_the_run(bound):
     assert run.calls[0].order == 0 and run.calls[1].order == 1
 
 
+def test_streamed_calls_carry_their_own_rows_and_timing(seeded):
+    """The demo labels each streamed tool call with a row count and a duration.
+
+    Those are emitted from the tool layer, after the body returns. Emitting them from the
+    assistant message's `tool_use` block instead reported the *previous* call's numbers, because
+    the tool runner executes a turn's tools after yielding the message that asked for them.
+    """
+    run = Run(alert_id="test", signature="test", mode="cold", effort="high")
+    streamed: list[dict[str, object]] = []
+    with T.bind(seeded, run, on_call=lambda c: streamed.append(
+            {"tool": c.tool, "rows": c.rows, "ms": c.ms, "order": c.order})):
+        T.owner_of("checkout-api")
+        T.blast_radius("orders-db")
+
+    assert [e["tool"] for e in streamed] == ["owner_of", "blast_radius"]
+    assert [e["order"] for e in streamed] == [0, 1]
+    # Every streamed event matches the ledger row for the same call — same tool, same rows.
+    assert [(e["tool"], e["rows"]) for e in streamed] == [(c.tool, c.rows) for c in run.calls]
+    assert all(e["rows"] > 0 for e in streamed), "a row count attributed to the wrong call"
+
+
+def test_on_call_fires_without_a_ledger_run(seeded):
+    """The hook is independent of the ledger, so the demo can stream a run it does not record."""
+    streamed: list[str] = []
+    with T.bind(seeded, None, on_call=lambda c: streamed.append(c.tool)):
+        T.owner_of("checkout-api")
+        T.owner_of("orders-db")
+    assert streamed == ["owner_of", "owner_of"]
+
+
 def test_hops_is_validated_not_interpolated_blindly(bound):
     """Variable-length bounds cannot be parameterised, so the depth is interpolated — which makes
     validating it a correctness requirement, not a nicety."""
