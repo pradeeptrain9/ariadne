@@ -138,6 +138,14 @@ deliberate rather than an oversight if a judge asks.
 3. **Indexes do not optimize `<>`.** No query filters on not-equal over an indexed property.
 4. **No aggregations inside pattern comprehensions.** Aggregate in a preceding `WITH`, or use
    `size()` over a list comprehension.
+5. **`shortestPath` is legal only in a `WITH` or `RETURN` clause**, not as a `MATCH` pattern.
+   `MATCH p = shortestPath((a)-[:D*1..5]->(b))` — the spelling every Cypher example uses — fails
+   with "FalkorDB currently only supports shortestPaths in WITH or RETURN clauses". Write
+   `WITH shortestPath((a)-[:D*1..5]->(b)) AS p` instead. The confidence distance term needs it.
+6. **A node is not at distance 0 from itself** under `*1..n`: `shortestPath` returns an empty
+   path and a `NULL` length rather than a one-node path. `*0..n` returns the node at length 0.
+   `confidence_facts` therefore decides "the deploy touched the failing service" in Python and
+   only asks the graph about genuinely upstream deploys.
 
 ## Stack
 

@@ -24,6 +24,7 @@ from typing import Any
 from .graph import Ariadne
 from . import schema
 from .signature import shape_of, DEPLOY_WINDOW_MS
+from .tools import computed_confidence
 
 SEED = 20261015
 DAY_MS = 24 * 60 * 60 * 1000
@@ -449,13 +450,20 @@ def _seed_incidents(a: Ariadne, alerts: list[dict], rng: random.Random) -> dict[
             WITH c, size([f IN c.files WHERE ANY(p IN s2.paths WHERE f STARTS WITH p)]) AS overlap
             RETURN c.sha AS sha, overlap ORDER BY overlap DESC, c.at DESC LIMIT 1
         """, {"svc": alert["service"], "at": alert["at"], "window": DEPLOY_WINDOW_MS})
+        # The confidence is computed, exactly as it is for a live incident. It used to be
+        # `rng.uniform(0.62, 0.93)` — which made the 68 historical confidences the one set of
+        # numbers in this graph that no arithmetic backs, and `recall_plan` hands those to the
+        # model as evidence from the graph.
+        sha = culprit["sha"] if culprit else None
+        conf = (computed_confidence(a, alert_id=alert["id"], sha=sha)[0]
+                if sha else None)
         incidents.append({
             "id": f"inc-{i:03d}",
             "at": alert["at"] + rng.randint(5 * 60_000, 90 * 60_000),
             "signature": sig,
             "alert": alert["id"],
-            "culprit": culprit["sha"] if culprit else None,
-            "confidence": round(rng.uniform(0.62, 0.93), 2),
+            "culprit": sha,
+            "confidence": conf,
         })
 
     a.write("""UNWIND $rows AS r

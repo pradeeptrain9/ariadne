@@ -106,3 +106,36 @@ def test_exists_rejects_traversal_patterns(chain):
                       WITH a, d WHERE d IS NULL
                       RETURN a.n AS n""")
     assert [r["n"] for r in rows] == ["c"]
+
+
+def test_shortestpath_is_only_legal_in_with_or_return(chain):
+    """`MATCH p = shortestPath(...)` raises here, unlike in Neo4j's Cypher.
+
+    The confidence distance term needs a shortest path, and the pattern-in-MATCH spelling is the
+    one every Cypher example uses. The error names the restriction, which is how it was found.
+    """
+    with pytest.raises(Exception, match="only supports shortestPaths in WITH or RETURN"):
+        chain.q("""MATCH (a:S {n:'a'}), (c:S {n:'c'})
+                   MATCH p = shortestPath((a)-[:D*1..5]->(c))
+                   RETURN length(p) AS hops""")
+
+    rows = chain.q("""MATCH (a:S {n:'a'}), (c:S {n:'c'})
+                      WITH shortestPath((a)-[:D*1..5]->(c)) AS p
+                      RETURN length(p) AS hops, [n IN nodes(p) | n.n] AS path""")
+    assert rows[0]["hops"] == 1 and rows[0]["path"] == ["a", "c"]
+
+
+def test_shortestpath_needs_a_zero_lower_bound_to_reach_its_own_node(chain):
+    """A node is not at distance 0 from itself under `*1..n`: the result is an empty path, not a
+    one-node one. `confidence_facts` treats "the deploy touched the failing service" as distance
+    0 in Python instead of asking the graph for a self-path.
+    """
+    one_hop_min = chain.q("""MATCH (a:S {n:'a'})
+                             WITH shortestPath((a)-[:D*1..5]->(a)) AS p
+                             RETURN [n IN nodes(p) | n.n] AS path, length(p) AS hops""")
+    assert one_hop_min[0]["path"] == [] and one_hop_min[0]["hops"] is None
+
+    zero_ok = chain.q("""MATCH (a:S {n:'a'})
+                         WITH shortestPath((a)-[:D*0..5]->(a)) AS p
+                         RETURN [n IN nodes(p) | n.n] AS path, length(p) AS hops""")
+    assert zero_ok[0]["path"] == ["a"] and zero_ok[0]["hops"] == 0

@@ -42,6 +42,15 @@ decide which commit is suspect and what the blast radius is. Claude decides whic
 and writes the explanation. Remove the model and the verdict is unchanged — it just reads worse.
 Remove the graph and there is no product (rule 3).
 
+The rule is easy to state and easy to break. Until Day 2 the verdict's **confidence** was the
+model's own number: `record_outcome` took it as an argument and wrote it to the graph, and the
+seeded history filled 68 more from `rng.uniform(0.62, 0.93)` — which `recall_plan` then handed
+back to the model as evidence. The one figure in the verdict that reads like a measurement was
+the only one nothing computed. It is now `scoring.confidence` over graph facts, recomputed at
+write time, stored with its terms on the `CAUSED_BY` edge, and asserted by a test; the model's
+estimate is kept beside it as `model_confidence` and used for nothing. Both halves of the fix
+are in [docs/architecture.md](docs/architecture.md).
+
 A model asked *which commit broke this* answers fluently and sometimes wrongly, and nothing
 downstream can tell the difference, because a right answer and a wrong one are both well-formed
 prose.
@@ -216,6 +225,10 @@ upgrade breaks a test instead of the demo. Details in [docs/decisions.md](docs/d
 - Variable-length **bounds cannot be parameterised** — `*1..$hops` raises.
 - Vector `score` is a **distance**: nearest neighbours are `ORDER BY score ASC`. The docs' own
   example orders `DESC`, which returns the least similar rows first.
+- `shortestPath` is legal **only in a `WITH` or `RETURN` clause** — `MATCH p = shortestPath(…)`,
+  the spelling every Cypher example uses, raises.
+- A node is **not at distance 0 from itself** under `*1..n`: the shortest path to itself comes
+  back empty with a `NULL` length, not as a one-node path.
 
 ## Documents
 

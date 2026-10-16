@@ -95,7 +95,14 @@ confidence = clamp(0.1, 0.95,
 
 Every term comes from a Cypher result: `overlap` and `files_changed` from the commit, `distance`
 from the dependency traversal, the deploy time from the `Deploy` node. Asked where a 0.78 came
-from, the answer is the three numbers that produced it.
+from, the answer is the three numbers that produced it — stored on the `CAUSED_BY` edge next to
+it, so the answer does not depend on anyone trusting this document.
+
+`record_outcome` computes it rather than accepting it. The model passes its own estimate, which
+is recorded as `model_confidence` and used for nothing; the verdict reports what the arithmetic
+returned. Worth saying plainly because it was not true at first — the model's number went
+straight into the graph, which made confidence the one part of the verdict that was prose
+wearing a decimal point.
 
 The model's job is choosing which tool to call next and writing the explanation. Remove the model
 and the verdict is unchanged — it just reads worse. That division is deliberate: a model asked

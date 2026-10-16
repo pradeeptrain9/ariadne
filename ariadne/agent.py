@@ -31,7 +31,6 @@ import anthropic
 from . import tools as T
 from .graph import Ariadne
 from .ledger import Run, ToolCall, LEDGER_PATH
-from .scoring import explain
 from .signature import signature_of
 
 #: Sonnet 5: adaptive thinking and the full effort range, at 2.5x less than Opus 5. Prices for
@@ -77,10 +76,14 @@ How to work:
    ranking scores those low. If you suspect one, say so explicitly and explain why you are going
    against the ranking.
 5. Finish by calling `record_outcome`. Pass `culprit_sha: null` when no commit is responsible.
+   Its `confidence` argument is your own estimate and is recorded only for comparison: the
+   verdict's confidence is computed from the graph — file overlap, dependency distance, minutes
+   from deploy to alert — and comes back in the result. Report *that* number and the terms
+   beside it, never your estimate.
 
 Then write the verdict as a handful of short bullets — no headings, no tables, no preamble.
-Cover: the culprit (or that there isn't one), the confidence and what it was computed from, the
-impacted services, the owner to page, and the runbook. Be specific and brief. State what you did
+Cover: the culprit (or that there isn't one), the confidence `record_outcome` returned and what
+it was computed from, the impacted services, the owner to page, and the runbook. Be specific and brief. State what you did
 not establish rather than filling the gap with a plausible sentence."""
 
 
