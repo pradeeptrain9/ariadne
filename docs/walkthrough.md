@@ -188,7 +188,7 @@ cost the same as deriving it — measured at 1.1×, with warm runs burning *more
 because the plan steps were injected into the prompt and the agent still did all the work. A
 memory that replays everything saves nothing.
 
-What fixed it: `recall_plan` now returns a **hypothesis** computed from the graph — "in 13 of 13
+What fixed it: `recall_plan` now returns a **hypothesis** computed from the graph — "in 9 of 9
 prior incidents of this shape, the cause was a commit in a deploy that touched the failing
 service itself" — bundled with the *current* blast radius, owner and runbook, all recomputed in
 the same call so none of it is stale. A hit then leaves exactly one thing to establish: whether

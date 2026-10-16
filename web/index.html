@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ariadne</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --bg: #fbfbfa; --panel: #ffffff; --line: #e4e2dd; --ink: #1a1a18;
@@ -73,8 +74,16 @@
   .node.failing text { fill: var(--hot); font-weight: 700; }
   .node.impacted circle { stroke: var(--accent); stroke-width: 2.2; }
   .node.impacted text { fill: var(--ink); }
+  /* The dependency cone: what the traversal searched for a cause, as opposed to what breaks. */
+  .node.cone circle { stroke: var(--t2); stroke-width: 2.2; stroke-dasharray: 2 1.6; }
+  .node.cone text { fill: var(--t2); }
+  .node.culprit circle { stroke: var(--warm-c); stroke-width: 3.4; }
+  .node.culprit text { fill: var(--warm-c); font-weight: 700; }
   .node.dim { opacity: 0.3; }
+  .edge.cone { stroke: var(--t2); stroke-width: 1.6; opacity: 0.7; stroke-dasharray: 3 2; }
   .legend { display: flex; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  /* `display: flex` overrides the user agent's `[hidden] { display: none }`, so say it again. */
+  .legend[hidden] { display: none; }
   .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 5px; }
   /* transcript */
   #log { max-height: 340px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
@@ -115,6 +124,25 @@
   .verdict strong { color: var(--ink); }
   .verdict p { margin: 0 0 8px; }
   .verdict:empty::before { content: "No verdict yet."; color: var(--faint); }
+  /* computed verdict card */
+  .vcard { border: 1px solid var(--line); border-radius: 6px; padding: 11px 12px; margin-bottom: 12px; }
+  .vcard .vhead {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.07em; margin-bottom: 8px;
+  }
+  .vrow { display: grid; grid-template-columns: 94px 1fr; gap: 8px; padding: 3px 0; font-size: 13px; }
+  .vrow .vk { color: var(--muted); font-size: 12px; }
+  .vrow .vv { font-family: var(--mono); font-size: 12px; word-break: break-word; }
+  .vrow .vv.plain { font-family: inherit; font-size: 13px; }
+  .chain { font: 11.5px var(--mono); color: var(--muted); word-break: break-word; }
+  .chain b { color: var(--ink); font-weight: 600; }
+  .conf { font: 600 15px var(--mono); }
+  .terms { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .modelconf { color: var(--faint); font-size: 11.5px; }
+  .prose-head {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.07em; margin: 0 0 6px;
+  }
   .hint { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
   .err { color: var(--hot); font: 12px var(--mono); white-space: pre-wrap; }
   .stack { display: grid; gap: 16px; align-content: start; }
@@ -135,6 +163,12 @@
         <span><i class="dot" style="background:var(--t1)"></i>tier 1 · customer-facing</span>
         <span><i class="dot" style="background:var(--t2)"></i>tier 2 · services</span>
         <span><i class="dot" style="background:var(--t3)"></i>tier 3 · infrastructure</span>
+      </div>
+      <div class="legend" id="runLegend" hidden>
+        <span><i class="dot" style="background:var(--hot)"></i>failing</span>
+        <span><i class="dot" style="background:var(--accent)"></i>breaks with it — blast radius</span>
+        <span><i class="dot" style="background:var(--t2)"></i>searched for the cause — dependency cone</span>
+        <span id="culpritKey" hidden><i class="dot" style="background:var(--warm-c)"></i>culprit shipped here</span>
       </div>
       <p class="hint" id="meshNote">Nothing pre-computed. Pick an alert to investigate.</p>
     </section>
@@ -171,6 +205,8 @@
 
     <section class="card">
       <h2>Verdict</h2>
+      <div id="computed"></div>
+      <p class="prose-head" id="proseHead" hidden>the model's explanation</p>
       <div class="verdict" id="verdict"></div>
     </section>
   </div>
@@ -255,29 +291,43 @@ function callersOf(target) {
   return out;
 }
 
-function highlight(failing) {
+/* Two different questions get two different colours. The blast radius answers "what breaks
+   with it" and runs downstream along the callers. The cone answers "what could have broken it"
+   and runs upstream along the dependencies — it is the set `upstream_candidates` actually
+   returned, passed in from the computed verdict rather than guessed at here, because that tool
+   caps its result and a locally recomputed cone would claim the agent searched more than it
+   did. */
+function highlight(failing, cone = [], culpritService = null) {
   const esc = (s) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
   document.querySelectorAll(".node").forEach((n) =>
-    n.classList.remove("failing", "impacted", "dim"));
-  document.querySelectorAll(".edge").forEach((e) => e.classList.remove("lit"));
+    n.classList.remove("failing", "impacted", "cone", "culprit", "dim"));
+  document.querySelectorAll(".edge").forEach((e) => e.classList.remove("lit", "cone"));
   if (!failing) return [];
 
   const impacted = callersOf(failing);
+  const coneSet = new Set(cone);
   const live = new Set([failing, ...impacted]);
   document.querySelectorAll(".node").forEach((n) => {
     const name = n.dataset.name;
     if (name === failing) n.classList.add("failing");
+    else if (name === culpritService) n.classList.add("culprit");
+    else if (coneSet.has(name)) n.classList.add("cone");
     else if (live.has(name)) n.classList.add("impacted");
     else n.classList.add("dim");
   });
   // Light an edge only when both ends are in the impacted set: those are the paths the
   // failure actually travels along.
   const liveIds = new Set([...live].map(esc));
+  const coneIds = new Set([...coneSet, failing].map(esc));
   document.querySelectorAll(".edge").forEach((e) => {
-    if (liveIds.has(e.getAttribute("data-s")) && liveIds.has(e.getAttribute("data-t"))) {
-      e.classList.add("lit");
-    }
+    const sId = e.getAttribute("data-s"), tId = e.getAttribute("data-t");
+    if (coneIds.has(sId) && coneIds.has(tId)) e.classList.add("cone");
+    else if (liveIds.has(sId) && liveIds.has(tId)) e.classList.add("lit");
   });
+  $("runLegend").hidden = false;
+  // Only claim a colour the drawing is actually using: when the culprit shipped on the failing
+  // service itself, which is the common case, there is no second node to point at.
+  $("culpritKey").hidden = !document.querySelector(".node.culprit");
   return impacted;
 }
 
@@ -320,6 +370,80 @@ function renderVerdict(md) {
   }
   if (list) out.push(`<ul>${list.join("")}</ul>`);
   $("verdict").innerHTML = out.join("");
+  $("proseHead").hidden = false;
+}
+
+/* ---------- computed verdict --------------------------------------------- */
+/* The card above the prose is the graph's verdict, not the model's sentence about it: the
+   culprit chain, the confidence with the three terms that produced it, the impact, the owner
+   and the runbook, all read back from the graph through /api/verdict. The model's paragraph
+   goes underneath, labelled as the explanation rather than the answer. */
+let VERDICT = null;
+
+function esc(t) {
+  return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function row(k, v, cls = "") {
+  return `<div class="vrow"><span class="vk">${k}</span><span class="vv ${cls}">${v}</span></div>`;
+}
+
+async function loadVerdict(incidentId) {
+  const res = await fetch(`/api/verdict?incident=${encodeURIComponent(incidentId)}`);
+  if (!res.ok) return null;
+  const v = await res.json();
+  VERDICT = v;
+
+  const culpritService = v.culprit && v.culprit.deploy ? deployTarget(v) : null;
+  highlight(v.failing, v.cone || [], culpritService);
+  const sameService = v.culprit && v.culprit.distance_hops === 0;
+  $("meshNote").textContent =
+    `${v.failing} is failing · ${v.impacted_count} downstream `
+    + `(${v.tier1_impacted.length} tier-1) · ${(v.cone || []).length} searched upstream`
+    + (sameService ? ` · the culprit shipped on ${v.failing} itself` : "");
+
+  const out = [];
+  if (v.culprit) {
+    const c = v.culprit;
+    const chain = `<span class="chain">${esc(v.alert.id)} → <b>${esc(v.failing)}</b>`
+      + ` → ${esc(c.deploy)} → <b>${esc(c.sha)}</b>`
+      + `${c.author ? " (" + esc(c.author) + ")" : ""}</span>`;
+    out.push(row("culprit", `<b>${esc(c.sha)}</b> — ${esc(c.msg)}`));
+    out.push(row("chain", chain));
+    const t = c.terms && c.terms.terms;
+    out.push(row("confidence",
+      `<span class="conf">${c.confidence == null ? "—" : c.confidence.toFixed(2)}</span>`
+      + (t ? `<div class="terms">${esc(t.path_overlap)} · ${esc(t.distance)}`
+           + ` · ${esc(t.deploy_to_alert_minutes)} min after the deploy</div>` : "")
+      + (c.model_confidence == null ? ""
+         : `<div class="modelconf">the model's own estimate was `
+           + `${c.model_confidence.toFixed(2)} — recorded, not used</div>`)));
+  } else {
+    out.push(row("culprit", "none — nothing shipped in the window, the cause is structural",
+                 "plain"));
+  }
+  out.push(row("impact", `${v.impacted_count} service(s)`
+    + (v.tier1_impacted.length
+       ? `<div class="terms">tier 1: ${v.tier1_impacted.map(esc).join(", ")}</div>` : "")));
+  out.push(row("page", v.owner
+    ? `${esc(v.owner.handle)} — ${esc(v.owner.name)} (${esc(v.owner.rotation)}, ${esc(v.owner.tz)})`
+    : "no recorded owner"));
+  out.push(row("runbook", v.runbook
+    ? `${esc(v.runbook.title)}<div class="terms">${esc(v.runbook.failure_mode)} — `
+      + `${esc(v.runbook.symptom)}</div>`
+    : "none linked to this service's failure modes"));
+
+  $("computed").innerHTML =
+    `<div class="vcard"><div class="vhead">verdict, computed from the graph</div>`
+    + out.join("") + `</div>`;
+  return v;
+}
+
+/* Which service the culprit's deploy landed on — the graph says it is one of the services that
+   deploy touched, and the failing service itself whenever that is among them. */
+function deployTarget(v) {
+  if (!v.culprit) return null;
+  return v.culprit.distance_hops === 0 ? v.failing : null;
 }
 
 /* ---------- ledger ------------------------------------------------------- */
@@ -348,6 +472,7 @@ async function loadLedger() {
 /* ---------- run ---------------------------------------------------------- */
 function reset() {
   ix = 0; $("log").innerHTML = ""; $("verdict").innerHTML = "";
+  $("computed").innerHTML = ""; VERDICT = null; $("proseHead").hidden = true;
   $("error").textContent = ""; $("mCalls").textContent = "0";
   $("mTok").textContent = "0"; $("mCost").textContent = "$0.0000";
   $("mMode").textContent = "—";
@@ -402,6 +527,9 @@ function run() {
     logNote(`done — ${r.tool_calls} tool calls, ${fmt(r.total_tokens)} tokens `
       + `(${fmt(r.cache_read)} cached), $${r.cost_usd.toFixed(4)}, ${fmt(r.wall_ms)}ms`);
     if (d.text) renderVerdict(d.text);
+    // The computed verdict comes from the graph the agent just wrote to, so it is read back
+    // rather than parsed out of the prose. It also supplies the cone the traversal searched.
+    loadVerdict(`inc-${r.alert_id}`).catch(() => {});
     loadLedger();
   });
 

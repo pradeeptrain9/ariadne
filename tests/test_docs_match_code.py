@@ -119,3 +119,40 @@ def test_unimplemented_things_are_declared_as_such():
             "SPpaths is implemented now — move it out of 'Designed, not implemented'"
     if "queryNodes" in code.split("def recall_plan")[-1].split("def ")[0]:
         pytest.fail("recall_plan uses vector recall now — update the doc section")
+
+
+# --- numbers the documents quote from a live run -------------------------------------
+
+
+QUOTING_DOCS = ("README.md", "SUBMISSION.md", "docs/walkthrough.md", "docs/video.md")
+
+
+def test_quoted_hypothesis_matches_what_recall_plan_says(seeded):
+    """Four documents quote `recall_plan`'s hypothesis for scenario A as "in N of N prior
+    incidents…". They said 13 of 13 against a graph that says 9 of 9 — a judge who runs the demo
+    reads the real number off the screen, so the quote has to track the seed.
+    """
+    import json
+
+    from ariadne import tools as T
+    from ariadne.signature import signature_of
+
+    alert = json.loads((ROOT / "fixtures" / "scenarios.json").read_text())["scenario_a"][0]
+    signature, _ = signature_of(seeded, alert)
+    with T.bind(seeded):
+        hypothesis = T.recall_plan(signature, alert["service"])["hypothesis"]
+    live = re.search(r"in (\d+) of (\d+) prior incidents", hypothesis)
+    assert live, f"hypothesis no longer has the quoted shape: {hypothesis!r}"
+
+    spelled = {"9": "Nine", "13": "Thirteen"}
+    for name in QUOTING_DOCS:
+        text = (ROOT / name).read_text()
+        for found in re.findall(r"in (\d+) of (\d+) prior incidents", text):
+            assert found == live.groups(), (
+                f"{name} quotes {found[0]} of {found[1]}, the graph says "
+                f"{live.group(1)} of {live.group(2)}")
+        for found in re.findall(r"(\w+) of (\w+) past incidents", text):
+            want = spelled.get(live.group(1), live.group(1))
+            assert found[0].capitalize() == want, (
+                f"{name} quotes '{found[0]} of {found[1]} past incidents', the graph says "
+                f"{live.group(1)} of {live.group(2)}")
