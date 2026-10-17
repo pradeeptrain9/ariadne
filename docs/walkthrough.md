@@ -177,10 +177,11 @@ variables changed at once. The corrected finding is in `docs/decisions.md`.
 
 ## "Did the memory actually save anything? Show me."
 
-Measured on the same alerts in both arms, `claude-sonnet-5`: cold 7 tool calls / 36,320 tokens
-/ $0.0503, warm 4 calls / 25,867 tokens / $0.0273. 1.8× cheaper, 1.8× fewer calls, same culprit
-commit every time. The same comparison on `claude-opus-5` gave 1.9× — the ratio survived a model
-change, which is why the claim is a ratio rather than a price.
+Measured on the same 20 alerts in both arms, `claude-sonnet-5`: cold 7.3 tool calls / 32,503
+tokens / $0.0438, warm 4.0 calls / 26,772 tokens / $0.0274. 1.6× cheaper, 1.8× fewer calls,
+same culprit commit on all 20. An earlier 3-alert sample read 1.8×, and a smaller run on
+`claude-opus-5` 1.9× — which is why the claim is a ratio rather than a price, stated with its
+sample size.
 
 **It did not work the first time, and the failure is the interesting part.** The first design
 stored each plan as a transcript of the investigation that produced it. Replaying that transcript

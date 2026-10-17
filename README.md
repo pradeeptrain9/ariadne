@@ -2,7 +2,7 @@
 
 An on-call agent whose context *and* memory are a graph.
 
-An alert fires. Ariadne answers the three questions a human spends forty minutes on — **what
+An alert fires. Ariadne answers the three questions on-call asks first — **what
 changed, what else breaks, who owns it** — and shows the path through a FalkorDB graph that got
 it there. Then it remembers: the resolved incident is written back as a reusable plan, so the
 next alert with the same *structural shape* replays that plan instead of re-investigating.
@@ -17,32 +17,31 @@ Coordination**.
 |---|---|
 | Graph, schema, deterministic seed, verification | done |
 | Nine graph tools, confidence scoring, cost ledger | done |
-| Agent loop (tool runner, caching, effort policy) | run — six investigations in `runs.jsonl` |
-| Cold-vs-warm measurement harness | run at **3 alerts per arm**; the ledger holds those six runs |
-| Widening that to 20 alerts per arm | **not done** — needs an API key; pre-flighted and ready |
+| Agent loop (tool runner, caching, effort policy) | run — 40 live investigations in `docs/measurements/runs.jsonl` |
+| Cold-vs-warm measurement harness | run at **20 alerts per arm** (40 runs, $1.42) |
 | MCP server (stdio, read-only by default) | done |
 | Demo page with live streaming run | path covered by tests; the model call in it is not |
 | Submission write-up, measurements, video shot list | done |
 | Demo video | not recorded |
 
 Everything below is measured, not projected — 128 tests, and the numbers come out of
-`runs.jsonl`. The sample is small: three alerts per arm, stated wherever the ratio is.
+`docs/measurements/runs.jsonl`: 20 alerts per arm, stated wherever the ratio is.
 
-**What a missing API key leaves unverified.** The tests need no key, and they now drive the
-streaming path end to end — real socket, real handler, real tool bodies against the real graph,
-real write-back — with a scripted model client in place of the one call that needs a credential
-(`tests/test_sse_stream.py`). So the framing, the event order, the per-call row counts and the
-ledger row are all checked. What is *not* checked is whether the model, given this system prompt
-and these tools, picks that sequence: that is a live run, and it is the same credential the
-20-alert measurement is waiting on. `python -m ariadne.replay --n 20 --dry-run` reports exactly
-what that run would do, and costs nothing.
+**What is verified live, and what by test.** The 20-alert measurement is 40 live model runs
+through the agent loop: the model, given this system prompt and these tools, took the four-call
+warm path on all 20 warm runs and reached the same culprit as cold on all 20 alerts. The demo
+page's streaming path is covered end to end by tests — real socket, real handler, real tool
+bodies against the real graph, real write-back — with a scripted model client in place of the
+one network call (`tests/test_sse_stream.py`); its first live run is a rehearsal take of the
+video.
 
 **Timeline disclosure:** the hackathon window is Oct 15–18. The design notes in `docs/` and the
 graph/seed/verification code in `ariadne/` were written on **Oct 11**, before the window opened —
 earlier than rule 8 intends. Recorded here rather than disguised. Commits carry their real dates.
 
-**AI assistance disclosure (rule 11):** written with Claude Code (Claude Opus 5) — design notes,
-the seeder, the test suite. The FalkorDB behaviours in `docs/decisions.md` were each found by
+**AI assistance disclosure (rule 11):** written with Claude Code (Claude Opus models) — design
+notes, the seeder, tools, agent loop, tests and the write-up. The agent itself runs on
+`claude-sonnet-5`. The FalkorDB behaviours in `docs/decisions.md` were each found by
 running queries against a live instance, not taken from the model's or the documentation's word.
 
 ## The design rule
@@ -112,24 +111,22 @@ the same block with absolute paths in `claude_desktop_config.json`.
 
 ## What the memory is worth
 
-Measured on `claude-sonnet-5`, same alerts in both arms, **three alerts per arm** (six runs):
+Measured on `claude-sonnet-5`, same alerts in both arms, **20 alerts per arm** (40 runs):
 
 | | runs | tool calls | tokens | cost | wall |
 |---|---|---|---|---|---|
-| cold (memory withheld) | 3 | 7.0 | 36,320 | $0.0503 | 28.0s |
-| warm (memory available) | 3 | 4.0 | 25,867 | $0.0273 | 16.2s |
+| cold (memory withheld) | 20 | 7.3 | 32,503 | $0.0438 | 22.8s |
+| warm (memory available) | 20 | 4.0 | 26,772 | $0.0274 | 13.9s |
 
-**1.8× cheaper, 1.8× fewer tool calls, same culprit commit on every alert.** Warm runs also
-report higher confidence, because the recalled hypothesis corroborates what the current window
-shows. Three alerts per arm is a small sample — it is the ledger's whole contents, and
-`python -m ariadne.replay --n 20` widens it. That run has not been made: it needs an API key.
-What it would do is checkable without one: `--dry-run` reports 20 alerts available of
-68 in the graph, 40 runs to make, and **$1.55** estimated — 20 x (mean cold + mean warm) from
-the rows already in `docs/measurements/runs.jsonl`, not a guess — then names the missing
-credential and exits non-zero. The harness refuses to start rather than half-measure: fewer alerts in the graph than
-asked for, a model with no price recorded, or a missing credential each stop it before the first
-call. `--resume` skips the arms a ledger already holds, so 40 runs do not have to survive in one
-sitting.
+**1.6× cheaper, 1.8× fewer tool calls, same culprit commit on all 20 alerts.** The computed
+confidence was identical in both arms on every alert — memory changed what it cost to find the
+answer, not the answer. Per-run cost and the full ledger: `docs/measurements/`.
+
+The first measurement used three alerts per arm and read 1.8× on cost; widening to 20 moved it
+to 1.6×, and the call ratio held. The harness refuses to start rather than half-measure: fewer
+alerts in the graph than asked for, a model with no price recorded, or a missing credential each
+stop it before the first call (`--dry-run` checks all three for free). `--resume` skips the arms
+a ledger already holds, so 40 runs do not have to survive in one sitting.
 
 The comparison is the same alerts against the same graph, not a warm run on one alert versus a
 cold run on another — that would measure the alerts. `replay.py` asserts the warm arm reached the

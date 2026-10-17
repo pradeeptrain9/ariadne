@@ -4,20 +4,22 @@ Pre-window design work for **Graph Hacks** (FalkorDB, Oct 15–18 2026).
 
 Rule 8 of the hackathon rules: *"The main coding and design work must begin after the hackathon
 starts. You may discuss ideas, create notes, sketch the graph model, or prepare diagrams
-beforehand."* Everything in this directory is notes, model sketches and diagrams. **No runnable
-code exists in this repository before Oct 15, 00:01 IST.** The Cypher in `queries.md` is a model
-sketch written to be read, not executed, and will be rewritten against a live database on Day 1.
+beforehand."* Everything in this directory is notes, model sketches and diagrams, first written
+2026-10-11. **Code was also written before the window opened** — the graph, seed and
+verification code in `ariadne/` date from Oct 11–12, earlier than rule 8 intends. That is
+disclosed in the top-level README and SUBMISSION.md, and the commits carry their real dates. The
+Cypher in `queries.md` now matches the code, and `tests/test_docs_match_code.py` pins it.
 
 ## What Ariadne is
 
-An on-call agent that takes an alert and answers three questions a human currently spends 40
-minutes on: *what changed, what else breaks, who owns it.* The answer is a path through a
+An on-call agent that takes an alert and answers the three questions on-call asks
+first: *what changed, what else breaks, who owns it.* The answer is a path through a
 FalkorDB graph of services, deploys, commits and people — so the explanation is the artifact,
 not a narration bolted onto a score.
 
 Every resolved incident is written back as a reusable **plan** subgraph. The next alert with the
 same *structural shape* retrieves that plan instead of re-investigating, which makes the second
-answer roughly an order of magnitude cheaper than the first. That is the Track 02 entry; the
+answer measurably cheaper than the first — 1.6× on `claude-sonnet-5` over 20 alerts, see `measurements/`. That is the Track 02 entry; the
 investigation itself is the Track 01 entry. One codebase, two tracks (rule 5 allows this
 explicitly).
 
