@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
 from anthropic import beta_tool
+from anthropic.lib.tools import ToolError
 
 from .graph import Ariadne
 from .ledger import Run, ToolCall
@@ -540,6 +541,20 @@ def record_outcome(
         at = int(time.time() * 1000)
         computed: float | None = None
         facts: dict[str, Any] | None = None
+
+        # Scored before anything is written. A sha the graph does not have is a mistake worth
+        # telling the model about, and failing here rather than between the incident write and
+        # the plan write is what keeps a rejected call from leaving half an incident behind.
+        if culprit_sha:
+            try:
+                computed, facts = computed_confidence(a, alert_id=alert_id, sha=culprit_sha)
+            except KeyError:
+                raise ToolError(
+                    f"nothing written: no commit {culprit_sha!r} in a deploy reachable from "
+                    f"alert {alert_id!r}. Pass a sha exactly as suspect_commits returned it, or "
+                    f"culprit_sha: null if no commit is responsible."
+                ) from None
+
         a.write("""
             MERGE (i:Incident {id: $iid})
               ON CREATE SET i.at = $at, i.status = $status, i.signature = $sig
@@ -549,11 +564,10 @@ def record_outcome(
         """, {"iid": incident_id, "at": at, "sig": signature, "aid": alert_id,
               "status": "resolved" if resolved else "open"})
 
-        if culprit_sha:
-            # The verdict's confidence is computed here, from the graph. The model's own estimate
-            # is kept beside it rather than used: a number a model chose is not evidence, and the
-            # two differing is itself worth being able to see.
-            computed, facts = computed_confidence(a, alert_id=alert_id, sha=culprit_sha)
+        if culprit_sha and facts is not None:
+            # The confidence computed above goes on the edge. The model's own estimate is kept
+            # beside it rather than used: a number a model chose is not evidence, and the two
+            # differing is itself worth being able to see.
             a.write("""
                 MATCH (i:Incident {id: $iid}), (c:Commit {sha: $sha})
                 MERGE (i)-[cb:CAUSED_BY]->(c)

@@ -25,7 +25,7 @@ Coordination**.
 | Submission write-up, measurements, video shot list | done |
 | Demo video | not recorded |
 
-Everything below is measured, not projected — 127 tests, and the numbers come out of
+Everything below is measured, not projected — 128 tests, and the numbers come out of
 `runs.jsonl`. The sample is small: three alerts per arm, stated wherever the ratio is.
 
 **What a missing API key leaves unverified.** The tests need no key, and they now drive the
@@ -73,7 +73,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m ariadne.seed          # deterministic graph + fixtures/scenarios.json
 .venv/bin/python -m ariadne.verify        # graph correctness, prints every number it found
-.venv/bin/python -m pytest -q             # 127 tests, no API key needed
+.venv/bin/python -m pytest -q             # 128 tests, no API key needed
 ```
 
 Verified from a clean clone on a fresh virtualenv, in that order. The install also puts

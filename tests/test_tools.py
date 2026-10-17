@@ -290,3 +290,22 @@ def test_blast_radius_hop_cap_covers_the_whole_mesh(seeded):
                                RETURN max(length(deps)) AS d""")
     assert int(longest) <= 5, (
         f"longest dependency chain is {longest} hops but blast_radius only follows 5")
+
+
+def test_a_sha_the_graph_does_not_have_writes_nothing(seeded):
+    """A hallucinated or mistyped sha used to be a silent no-op, and then — once the confidence
+    was computed at write time — an exception thrown *between* the incident write and the plan
+    write, leaving half an incident. It is now rejected before anything is written, with a
+    message the model can act on."""
+    from anthropic.lib.tools import ToolError
+
+    run = Run(alert_id="alr-000", signature="sig-bad-sha", mode="cold", effort="high")
+    with T.bind(seeded, run):
+        with pytest.raises(ToolError, match="nothing written"):
+            T.record_outcome(incident_id="inc-bad-sha-test", alert_id="alr-000",
+                             signature="sig-bad-sha", culprit_sha="deadbeefcafe",
+                             confidence=0.9, impacted_services=[])
+    assert seeded.scalar(
+        "MATCH (i:Incident {id: 'inc-bad-sha-test'}) RETURN count(i) AS c") == 0
+    assert seeded.scalar(
+        "MATCH (p:Plan {signature: 'sig-bad-sha'}) RETURN count(p) AS c") == 0
