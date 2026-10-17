@@ -18,7 +18,7 @@ import traceback
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse, parse_qs
 
 from . import ledger as L
@@ -30,7 +30,7 @@ from .scoring import explain
 WEB = Path(__file__).resolve().parent.parent / "web"
 
 #: The runs committed to the repo, used when this machine has not measured anything yet.
-SHIPPED_LEDGER = Path(__file__).resolve().parent.parent / "docs" / "measurements" / "runs.jsonl"
+SHIPPED_LEDGER = L.MEASURED_LEDGER
 
 
 def ledger_rows() -> tuple[Path, list[dict[str, Any]]]:
@@ -178,8 +178,20 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "ariadne"
 
-    def __init__(self, *args: Any, graph: Ariadne, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, graph: Ariadne,
+                 client_factory: Callable[[], Any] | None = None,
+                 ledger: Path | None = L.LEDGER_PATH, **kwargs: Any) -> None:
         self._graph = graph
+        #: Builds the model client for an investigation. `None` lets `investigate` construct the
+        #: real one, which is what the demo does. The tests pass a scripted client so the whole
+        #: SSE path — framing, event order, tool execution, graph write-back — can be exercised
+        #: without an API key; it is the only part of the stream that needs a credential, and
+        #: leaving it uninjectable meant leaving the rest of the path unverified.
+        self._client_factory = client_factory
+        #: Where a streamed run is recorded. The demo appends to the repo-root ledger so the
+        #: page's cold-vs-warm panel fills in as runs happen; the tests redirect it so a test
+        #: run never lands in a file the submission quotes numbers from.
+        self._ledger = ledger
         super().__init__(*args, **kwargs)
 
     # --- plumbing ------------------------------------------------------------
@@ -261,10 +273,16 @@ class Handler(BaseHTTPRequestHandler):
 
         def worker() -> None:
             # The agent's own graph handle: a FalkorDB connection is not safe to share across
-            # threads, and the server handles requests on a thread pool.
-            with Ariadne() as own:
+            # threads, and the server handles requests on a thread pool. It must open the graph
+            # the server was given by *name* — a bare `Ariadne()` takes the module default from
+            # `ARIADNE_GRAPH`, so a server started on any other graph investigated one graph
+            # while every other route on the page read another.
+            with Ariadne(self._graph.name) as own:
                 try:
                     investigate(own, alert, force_mode=mode,
+                                client=(self._client_factory()
+                                        if self._client_factory is not None else None),
+                                ledger=self._ledger,
                                 on_event=lambda k, p: events.put((k, p)), verbose=True)
                 except Exception as exc:
                     traceback.print_exc()
@@ -292,9 +310,12 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
 
-def serve(port: int = 8000) -> None:
+def serve(port: int = 8000, *, client_factory: Callable[[], Any] | None = None,
+          ledger: Path | None = L.LEDGER_PATH) -> None:
     graph = Ariadne()
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), partial(Handler, graph=graph))
+    httpd = ThreadingHTTPServer(
+        ("127.0.0.1", port),
+        partial(Handler, graph=graph, client_factory=client_factory, ledger=ledger))
     print(f"ariadne demo on http://127.0.0.1:{port}")
     try:
         httpd.serve_forever()

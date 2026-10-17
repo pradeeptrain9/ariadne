@@ -96,16 +96,23 @@ connector would have cost a day and proved nothing about either.
 
 ## What the memory is worth
 
-Same alerts, same graph, memory withheld versus available, on `claude-sonnet-5`:
+Same alerts, same graph, memory withheld versus available, on `claude-sonnet-5`, at
+**3 alerts per arm** — six runs, the ledger's whole contents:
 
-| | tool calls | tokens | cost | wall |
-|---|---|---|---|---|
-| cold (memory withheld) | 7.0 | 36,320 | $0.0503 | 28.0s |
-| warm (memory available) | 4.0 | 25,867 | $0.0273 | 16.2s |
+| | runs | tool calls | tokens | cost | wall |
+|---|---|---|---|---|---|
+| cold (memory withheld) | 3 | 7.0 | 36,320 | $0.0503 | 28.0s |
+| warm (memory available) | 3 | 4.0 | 25,867 | $0.0273 | 16.2s |
 
 **1.8× cheaper, 1.8× fewer tool calls, the same culprit commit on every alert.** Warm runs
 reported higher confidence, because the recalled hypothesis corroborates what the current window
 shows. Raw ledger and per-run detail: `docs/measurements/`.
+
+Three per arm is a small sample and the ratio is stated as one. Widening it to 20 per arm is
+`python -m ariadne.replay --n 20`, which has not been run: it needs an API key. The harness
+pre-flights that run without one (`--dry-run`: 40 runs, ~$1.55 estimated from the rows above)
+and refuses to start on a missing credential or a graph with too few alerts, rather than
+quietly measuring a smaller sample.
 
 The same comparison on `claude-opus-5` measured 1.9× (cold $0.1281, warm $0.0677). We moved to
 Sonnet 5 for cost and the ratio held, which is why the claim is a ratio and not a price.

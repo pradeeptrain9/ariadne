@@ -27,7 +27,15 @@ PRICES: dict[str, dict[str, float]] = {
 }
 
 DEFAULT_MODEL = "claude-sonnet-5"
+
+#: Where a live run records itself: the working directory, so a demo or a measurement on this
+#: machine is this machine's own.
 LEDGER_PATH = Path("runs.jsonl")
+
+#: The runs committed to the repo. Read when this machine has measured nothing yet — by the demo
+#: page's cold-vs-warm panel, and as the only honest basis for a cost estimate. One constant
+#: rather than one per caller, because two modules holding the same path is how they drift.
+MEASURED_LEDGER = Path(__file__).resolve().parent.parent / "docs" / "measurements" / "runs.jsonl"
 
 
 def prices_for(model: str) -> dict[str, float]:

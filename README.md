@@ -19,13 +19,23 @@ Coordination**.
 | Nine graph tools, confidence scoring, cost ledger | done |
 | Agent loop (tool runner, caching, effort policy) | run — six investigations in `runs.jsonl` |
 | Cold-vs-warm measurement harness | run at **3 alerts per arm**; the ledger holds those six runs |
+| Widening that to 20 alerts per arm | **not done** — needs an API key; pre-flighted and ready |
 | MCP server (stdio, read-only by default) | done |
-| Demo page with live streaming run | done |
+| Demo page with live streaming run | path covered by tests; the model call in it is not |
 | Submission write-up, measurements, video shot list | done |
 | Demo video | not recorded |
 
-Everything below is measured, not projected — 105 tests, and the numbers come out of
+Everything below is measured, not projected — 128 tests, and the numbers come out of
 `runs.jsonl`. The sample is small: three alerts per arm, stated wherever the ratio is.
+
+**What a missing API key leaves unverified.** The tests need no key, and they now drive the
+streaming path end to end — real socket, real handler, real tool bodies against the real graph,
+real write-back — with a scripted model client in place of the one call that needs a credential
+(`tests/test_sse_stream.py`). So the framing, the event order, the per-call row counts and the
+ledger row are all checked. What is *not* checked is whether the model, given this system prompt
+and these tools, picks that sequence: that is a live run, and it is the same credential the
+20-alert measurement is waiting on. `python -m ariadne.replay --n 20 --dry-run` reports exactly
+what that run would do, and costs nothing.
 
 **Timeline disclosure:** the hackathon window is Oct 15–18. The design notes in `docs/` and the
 graph/seed/verification code in `ariadne/` were written on **Oct 11**, before the window opened —
@@ -63,7 +73,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m ariadne.seed          # deterministic graph + fixtures/scenarios.json
 .venv/bin/python -m ariadne.verify        # graph correctness, prints every number it found
-.venv/bin/python -m pytest -q             # 105 tests, no API key needed
+.venv/bin/python -m pytest -q             # 128 tests, no API key needed
 ```
 
 Verified from a clean clone on a fresh virtualenv, in that order. The install also puts
@@ -112,7 +122,14 @@ Measured on `claude-sonnet-5`, same alerts in both arms, **three alerts per arm*
 **1.8× cheaper, 1.8× fewer tool calls, same culprit commit on every alert.** Warm runs also
 report higher confidence, because the recalled hypothesis corroborates what the current window
 shows. Three alerts per arm is a small sample — it is the ledger's whole contents, and
-`python -m ariadne.replay --n 20` widens it.
+`python -m ariadne.replay --n 20` widens it. That run has not been made: it needs an API key.
+What it would do is checkable without one: `--dry-run` reports 20 alerts available of
+68 in the graph, 40 runs to make, and **$1.55** estimated — 20 x (mean cold + mean warm) from
+the rows already in `docs/measurements/runs.jsonl`, not a guess — then names the missing
+credential and exits non-zero. The harness refuses to start rather than half-measure: fewer alerts in the graph than
+asked for, a model with no price recorded, or a missing credential each stop it before the first
+call. `--resume` skips the arms a ledger already holds, so 40 runs do not have to survive in one
+sitting.
 
 The comparison is the same alerts against the same graph, not a warm run on one alert versus a
 cold run on another — that would measure the alerts. `replay.py` asserts the warm arm reached the
