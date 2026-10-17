@@ -274,6 +274,9 @@ class Handler(BaseHTTPRequestHandler):
             if route.path != "/api/alertmanager":
                 self._json({"error": "not found"}, 404)
                 return
+            # Every refusal below answers before the body is read, so the unread bytes would be
+            # parsed as the next request on a kept-alive socket. Close it instead.
+            self.close_connection = True
             length = self.headers.get("Content-Length")
             if length is None:
                 self._json({"error": "Content-Length required"}, 411)
@@ -286,6 +289,7 @@ class Handler(BaseHTTPRequestHandler):
             if size < 0 or size > MAX_BODY:
                 self._json({"error": f"body over {MAX_BODY} bytes"}, 413)
                 return
+            self.close_connection = False  # the body is about to be read in full
             try:
                 payload = json.loads(self.rfile.read(size).decode() or "null")
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
