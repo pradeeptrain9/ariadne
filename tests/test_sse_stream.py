@@ -113,11 +113,12 @@ class ScriptedClient:
 # --- harness -------------------------------------------------------------------------------
 
 
-def _serve(graph: Ariadne, client: ScriptedClient, ledger):
+def _serve(graph: Ariadne, client: ScriptedClient, ledger, limits=None):
     """A real HTTP server on an ephemeral port, handing out the scripted client."""
     httpd = ThreadingHTTPServer(
         ("127.0.0.1", 0),
-        partial(Handler, graph=graph, client_factory=lambda: client, ledger=ledger))
+        partial(Handler, graph=graph, client_factory=lambda: client, ledger=ledger,
+                limits=limits))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd
 
@@ -367,3 +368,67 @@ def test_the_stream_investigates_the_graph_the_server_was_given(seeded, script, 
     # The write-back landed in the test graph, so that is the graph the agent traversed.
     assert seeded.scalar("MATCH (i:Incident {id: $i}) RETURN count(i)",
                          {"i": f"inc-{alert['id']}"}) == 1
+
+
+# --- the public demo's limits --------------------------------------------------------------
+
+
+def test_a_public_run_settles_its_real_cost_against_the_budget(seeded, script, tmp_path):
+    """The reservation made at the start is replaced by what the run cost, so the cap counts
+    money, not clicks."""
+    from ariadne.guard import PublicLimits
+
+    alert, _sig, _calls, turns = script
+    limits = PublicLimits(daily_cap_usd=2.0)
+    httpd = _serve(seeded, ScriptedClient(turns), tmp_path / "runs.jsonl", limits)
+    try:
+        status, events = _stream(httpd, f"/api/investigate?alert={alert['id']}&mode=cold")
+    finally:
+        httpd.shutdown()
+    assert status == 200
+    done = next(e for k, e in events if k == "done")
+    budget = limits.budget.status()
+    assert budget["reserved_usd"] == 0
+    assert budget["spent_usd"] == pytest.approx(done["run"]["cost_usd"], abs=1e-4)
+
+
+def test_a_spent_budget_refuses_the_run_with_a_message_the_page_can_show(
+        seeded, script, tmp_path):
+    from ariadne.guard import PublicLimits
+
+    alert, _sig, _calls, turns = script
+    client = ScriptedClient(turns)
+    limits = PublicLimits(daily_cap_usd=0.0)
+    httpd = _serve(seeded, client, tmp_path / "runs.jsonl", limits)
+    try:
+        status, events = _stream(httpd, f"/api/investigate?alert={alert['id']}")
+    finally:
+        httpd.shutdown()
+    assert status == 200
+    assert [k for k, _ in events] == ["error", "end"]
+    assert "budget" in events[0][1]["message"]
+    assert not (tmp_path / "runs.jsonl").exists(), "a refused run must not reach the ledger"
+    assert seeded.one("MATCH (i:Incident {id: $i}) RETURN i.id AS id",
+                      {"i": f"inc-{alert['id']}"}) is None, "nor the graph"
+
+
+def test_the_budget_route_reports_public_mode(seeded, tmp_path):
+    from ariadne.guard import PublicLimits
+
+    def get(httpd):
+        conn = http.client.HTTPConnection(*httpd.server_address, timeout=30)
+        conn.request("GET", "/api/budget")
+        body = json.loads(conn.getresponse().read().decode())
+        conn.close()
+        return body
+
+    local = _serve(seeded, ScriptedClient([]), tmp_path / "a.jsonl")
+    public = _serve(seeded, ScriptedClient([]), tmp_path / "b.jsonl",
+                    PublicLimits(daily_cap_usd=2.0))
+    try:
+        assert get(local) == {"public": False}
+        b = get(public)
+        assert b["public"] is True and b["cap_usd"] == 2.0 and b["runs_left_estimate"] == 25
+    finally:
+        local.shutdown()
+        public.shutdown()

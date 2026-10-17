@@ -21,11 +21,12 @@ Coordination**.
 | Cold-vs-warm measurement harness | run at **20 alerts per arm** (40 runs, $1.42) |
 | MCP server (stdio, read-only by default) | done |
 | Alertmanager webhook (`POST /api/alertmanager`) | done — files alerts; does not start investigations |
+| Hosted demo (`Dockerfile`, `render.yaml`, public-mode limits) | built and tested in a local container; not yet deployed |
 | Demo page with live streaming run | path covered by tests; the model call in it is not |
 | Submission write-up, measurements, video run of show | done |
 | Demo video | not recorded |
 
-Everything below is measured, not projected — 156 tests, and the numbers come out of
+Everything below is measured, not projected — 168 tests, and the numbers come out of
 `docs/measurements/runs.jsonl`: 20 alerts per arm, stated wherever the ratio is.
 
 **What is verified live, and what by test.** The 20-alert measurement is 40 live model runs
@@ -73,7 +74,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m ariadne.seed          # deterministic graph + fixtures/scenarios.json
 .venv/bin/python -m ariadne.verify        # graph correctness, prints every number it found
-.venv/bin/python -m pytest -q             # 156 tests, no API key needed
+.venv/bin/python -m pytest -q             # 168 tests, no API key needed
 ```
 
 Verified from a clean clone on a fresh virtualenv, in that order. The install also puts
@@ -213,6 +214,45 @@ comparison, and never mistakes it for a run on their own machine.
 
 Standard library only — no web framework. The demo has to run on a judge's machine from a clone
 and a `docker compose up`.
+
+## Hosted demo
+
+The same page runs on a public URL, with no setup: **hosted demo — link in SUBMISSION.md once
+deployed.** Everything on it works for anyone — the mesh, the committed 20-alert measurement,
+the computed verdicts, the Alertmanager webhook — and live investigations run on the project's
+API key, so the hosted server limits them:
+
+| Limit | Value | Why |
+|---|---|---|
+| Live-run budget | **$2.00 per UTC day** (`ARIADNE_DAILY_CAP_USD`) | ~25 investigations; a run reserves $0.08 when it starts and settles at its real cost, so a burst of clicks cannot jointly overshoot |
+| Live runs per address | 6 per hour | one visitor cannot spend the day's budget alone |
+| Concurrent runs | 2 | a free instance has a fraction of a CPU |
+| Webhook requests per address | 20 per hour, 300 alerts held | it writes to a shared graph |
+
+When the budget is spent the page says so and everything else keeps working. The counter is in
+memory, so it resets when the instance restarts; the hard ceiling is a spend limit on the API key
+itself (set one on the key's workspace in the Anthropic Console), and the cap above is a guard
+against a busy day, not a billing control.
+
+The graph is seeded and verified when the image is **built** and shipped as a FalkorDB snapshot,
+so a restart loads the same deterministic world the measurements were taken on. Visitors'
+investigations write back to it like any run does, and vanish at the next restart. A free
+instance sleeps when idle; waking it took about a minute in a test at 0.1 CPU and 512 MB, most
+of it importing the Anthropic SDK.
+
+### Deploy your own
+
+One container — FalkorDB on loopback and the server — from the `Dockerfile`. On Render: **New →
+Blueprint**, pick this repo (it reads `render.yaml`), and paste an `ANTHROPIC_API_KEY` when asked.
+Any host that runs a Dockerfile works the same way; it listens on `$PORT`.
+
+```bash
+docker build -t ariadne-demo .
+docker run --rm -p 8000:8000 -e ANTHROPIC_API_KEY ariadne-demo   # http://127.0.0.1:8000
+```
+
+The image runs in public mode (`ARIADNE_PUBLIC=1`). Locally, `python -m ariadne.server` stays in
+local mode — no limits, bound to `127.0.0.1` — because the key is the runner's own.
 
 ## Graph model
 

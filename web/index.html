@@ -192,6 +192,7 @@
         <label class="inline"><input type="checkbox" id="cold"> withhold memory</label>
         <button class="primary" id="go">Investigate</button>
       </div>
+      <p class="hint" id="budget" hidden></p>
       <p class="incoming" id="incoming" hidden></p>
       <p class="hint" id="shape"></p>
       <p class="err" id="error"></p>
@@ -541,8 +542,23 @@ function run() {
     loadLedger();
   });
 
-  stream.addEventListener("end", () => { stream.close(); $("go").disabled = false; });
-  stream.onerror = () => { stream.close(); $("go").disabled = false; };
+  stream.addEventListener("end", () => { stream.close(); $("go").disabled = false; loadBudget(); });
+  stream.onerror = () => { stream.close(); $("go").disabled = false; loadBudget(); };
+}
+
+/* On the hosted demo every live run is paid for by the project, under a daily cap; say so, and
+   say how much is left, before anyone presses the button. Locally this stays hidden. */
+async function loadBudget() {
+  let b;
+  try { b = await (await fetch("/api/budget")).json(); } catch { return; }
+  if (!b.public) return;
+  $("budget").hidden = false;
+  $("budget").textContent = b.runs_left_estimate > 0
+    ? `Shared demo: live runs use the project's API key — $${b.remaining_usd.toFixed(2)} of `
+      + `$${b.cap_usd.toFixed(2)} left today (UTC), about ${b.runs_left_estimate} run(s). `
+      + `Clone the repo to run it on your own key.`
+    : `Shared demo: today's $${b.cap_usd.toFixed(2)} live-run budget is spent (resets 00:00 UTC). `
+      + `The graph, the recorded measurements and the webhook still work.`;
 }
 
 /* ---------- boot --------------------------------------------------------- */
@@ -561,6 +577,7 @@ function run() {
 
   $("go").onclick = run;
   loadLedger();
+  loadBudget();
   setInterval(pollAlerts, 3000);
 })();
 

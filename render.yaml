@@ -1,0 +1,15 @@
+# Render Blueprint for the hosted demo: New > Blueprint, point it at this repo.
+# Render asks for the values marked `sync: false` when the Blueprint is created.
+services:
+  - type: web
+    name: ariadne
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ARIADNE_DAILY_CAP_USD
+        value: "2.0"

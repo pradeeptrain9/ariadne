@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import threading
 import traceback
@@ -25,6 +26,7 @@ from . import ledger as L
 from . import tools as T
 from .agent import investigate
 from .graph import Ariadne
+from .guard import PublicLimits
 from .ingest import PayloadError, ingest
 from .scoring import explain
 
@@ -193,8 +195,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def __init__(self, *args: Any, graph: Ariadne,
                  client_factory: Callable[[], Any] | None = None,
-                 ledger: Path | None = L.LEDGER_PATH, **kwargs: Any) -> None:
+                 ledger: Path | None = L.LEDGER_PATH,
+                 limits: PublicLimits | None = None, **kwargs: Any) -> None:
         self._graph = graph
+        #: Set only when the server is on a public URL: a daily spend cap and rate limits on the
+        #: two routes that cost money or write. `None` locally, where the key is the runner's own.
+        self._limits = limits
         #: Builds the model client for an investigation. `None` lets `investigate` construct the
         #: real one, which is what the demo does. The tests pass a scripted client so the whole
         #: SSE path — framing, event order, tool execution, graph write-back — can be exercised
@@ -221,6 +227,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, payload: Any, status: int = 200) -> None:
         self._send(json.dumps(payload, default=str).encode(), "application/json", status)
+
+    def _client(self) -> str:
+        """Who to rate-limit. Behind the host's proxy every request comes from the proxy, so the
+        public server keys on the first `X-Forwarded-For` entry. It can be forged; that only lets
+        a client dodge its own per-address limit, and the daily cap is global regardless."""
+        if self._limits is not None:
+            forwarded = self.headers.get("X-Forwarded-For", "")
+            if forwarded.strip():
+                return forwarded.split(",")[0].strip()
+        return self.client_address[0]
 
     def _file(self, name: str) -> None:
         path = (WEB / name).resolve()
@@ -249,6 +265,11 @@ class Handler(BaseHTTPRequestHandler):
                             "source": source.name if source == L.LEDGER_PATH
                                       else "docs/measurements/runs.jsonl",
                             "live": source == L.LEDGER_PATH})
+            elif route.path == "/api/budget":
+                self._json({"public": False} if self._limits is None
+                           else {"public": True, **self._limits.budget.status()})
+            elif route.path == "/healthz":
+                self._send(b"ok", "text/plain")
             elif route.path == "/api/verdict":
                 payload = verdict_payload(self._graph, query.get("incident", [""])[0])
                 if payload is None:
@@ -289,6 +310,16 @@ class Handler(BaseHTTPRequestHandler):
             if size < 0 or size > MAX_BODY:
                 self._json({"error": f"body over {MAX_BODY} bytes"}, 413)
                 return
+            if self._limits is not None and not self._limits.webhooks.allow(self._client()):
+                self._json({"error": f"rate limit: {self._limits.webhooks.limit} webhook "
+                                     "requests per hour from one address"}, 429)
+                return
+            if self._limits is not None and self._graph.scalar(
+                    "MATCH (x:Alert {source: 'alertmanager'}) RETURN count(x) AS c"
+            ) >= self._limits.max_pushed_alerts:
+                self._json({"error": "this shared demo holds as many webhook alerts as it "
+                                     "accepts; it resets when the server restarts"}, 429)
+                return
             self.close_connection = False  # the body is about to be read in full
             try:
                 payload = json.loads(self.rfile.read(size).decode() or "null")
@@ -324,13 +355,37 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": f"no such alert: {alert_id}"}, 404)
             return
 
+        refusal = (self._limits.admit_run(self._client())
+                   if self._limits is not None else None)
+
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.end_headers()
 
+        if refusal is not None:
+            # Sent as a stream event rather than an HTTP error, because the page's EventSource
+            # cannot read the body of a failed response and the refusal would vanish silently.
+            try:
+                self.wfile.write(
+                    f"event: error\ndata: {json.dumps({'message': refusal})}\n\n"
+                    "event: end\ndata: {}\n\n".encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+
         events: queue.Queue[tuple[str, Any] | None] = queue.Queue()
+        cost: list[float] = []  # the finished run's cost, for the budget; empty if it died
+
+        def on_event(kind: str, payload: Any) -> None:
+            if kind == "done":
+                try:
+                    cost.append(float(payload["run"]["cost_usd"]))
+                except (KeyError, TypeError, ValueError):
+                    pass
+            events.put((kind, payload))
 
         def worker() -> None:
             # The agent's own graph handle: a FalkorDB connection is not safe to share across
@@ -344,11 +399,13 @@ class Handler(BaseHTTPRequestHandler):
                                 client=(self._client_factory()
                                         if self._client_factory is not None else None),
                                 ledger=self._ledger,
-                                on_event=lambda k, p: events.put((k, p)), verbose=True)
+                                on_event=on_event, verbose=True)
                 except Exception as exc:
                     traceback.print_exc()
                     events.put(("error", {"message": str(exc)}))
                 finally:
+                    if self._limits is not None:
+                        self._limits.finish_run(cost[0] if cost else None)
                     events.put(None)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -371,13 +428,22 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
 
-def serve(port: int = 8000, *, client_factory: Callable[[], Any] | None = None,
-          ledger: Path | None = L.LEDGER_PATH) -> None:
+#: Where a public server records live runs: outside the working tree, so the page's cold-vs-warm
+#: panel keeps showing the committed 20-alert measurement instead of whatever visitors ran.
+PUBLIC_LEDGER = Path("/tmp/ariadne-public-runs.jsonl")
+
+
+def serve(port: int = 8000, *, host: str = "127.0.0.1",
+          client_factory: Callable[[], Any] | None = None,
+          ledger: Path | None = L.LEDGER_PATH, limits: PublicLimits | None = None) -> None:
     graph = Ariadne()
     httpd = ThreadingHTTPServer(
-        ("127.0.0.1", port),
-        partial(Handler, graph=graph, client_factory=client_factory, ledger=ledger))
-    print(f"ariadne demo on http://127.0.0.1:{port}")
+        (host, port),
+        partial(Handler, graph=graph, client_factory=client_factory, ledger=ledger,
+                limits=limits))
+    mode = (f"public, live runs capped at ${limits.budget.cap:.2f}/day"
+            if limits is not None else "local")
+    print(f"ariadne demo on http://{host}:{port} ({mode})")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -388,9 +454,21 @@ def serve(port: int = 8000, *, client_factory: Callable[[], Any] | None = None,
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Run the demo server.")
-    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--host", default=os.environ.get("ARIADNE_HOST", "127.0.0.1"),
+                    help="bind address (default 127.0.0.1; a container needs 0.0.0.0)")
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
+    ap.add_argument("--public", action="store_true",
+                    default=os.environ.get("ARIADNE_PUBLIC") == "1",
+                    help="hosted mode: daily spend cap and rate limits on live runs")
+    ap.add_argument("--daily-cap", type=float,
+                    default=float(os.environ.get("ARIADNE_DAILY_CAP_USD", "2.0")),
+                    help="public mode: USD of live investigations per UTC day")
     args = ap.parse_args()
-    serve(args.port)
+    if args.public:
+        serve(args.port, host=args.host, ledger=PUBLIC_LEDGER,
+              limits=PublicLimits(daily_cap_usd=args.daily_cap))
+    else:
+        serve(args.port, host=args.host)
 
 
 if __name__ == "__main__":

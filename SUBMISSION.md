@@ -2,7 +2,7 @@
 
 **Tracks:** Agents That Act on Connected Data · Agent Memory and Coordination
 **Graph:** FalkorDB 6.0.2 (Docker, pinned by digest)
-**Repo:** public, MIT · **Demo:** `docker compose up -d && python -m ariadne.server`
+**Repo:** public, MIT · **Hosted demo:** _link to be added once deployed_ · **Local:** `docker compose up -d && python -m ariadne.server`
 
 ---
 
