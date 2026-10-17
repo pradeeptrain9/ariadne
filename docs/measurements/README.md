@@ -30,6 +30,37 @@ another would measure the alerts, not the memory.
 | warm | alr-a00 | 4 | 26,069 | 18,450 | $0.0278 | `614ca4f7a5` | 0.8 |
 | warm | alr-a01 | 4 | 25,043 | 18,450 | $0.0249 | `d524715b1f` | 0.85 |
 
+## The 20-alert run
+
+Not made. It needs an API key, and there is none in the environment this was last worked in.
+The sample here is **3 alerts per arm**, and every ratio above says so.
+
+The run is one command when a key exists — `python -m ariadne.replay --n 20` — and what it
+would do is checkable without one (abridged; the command prints every field):
+
+```json
+{
+  "alerts_requested": 20,
+  "alerts_available": 20,
+  "alerts_with_a_plan_in_graph": 68,
+  "model": "claude-sonnet-5",
+  "model_priced": true,
+  "credential_present": false,
+  "runs_planned": 40,
+  "runs_to_make": 40,
+  "estimated_cost_usd": 1.55,
+  "problems": [
+    "no ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) in the environment or .env; the first investigation would fail on authentication"
+  ]
+}
+```
+
+The estimate is 20 x (mean cold + mean warm) from the rows in this file, not a guess. The
+pre-flight refuses to start on a missing credential, an unpriced model, or a graph with fewer
+alerts than the run asked for — that last one used to shrink the sample silently, which
+corrupts the result rather than stopping it. `--resume` skips arms already recorded, so a
+40-run session survives being interrupted.
+
 ## Accuracy guard
 
 3 of 3 alerts run in both arms reached the **same culprit commit**.
