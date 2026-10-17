@@ -55,6 +55,36 @@ def test_calls_are_recorded_on_the_run(bound):
     assert run.calls[0].order == 0 and run.calls[1].order == 1
 
 
+def test_streamed_calls_carry_their_own_rows_and_timing(seeded):
+    """The demo labels each streamed tool call with a row count and a duration.
+
+    Those are emitted from the tool layer, after the body returns. Emitting them from the
+    assistant message's `tool_use` block instead reported the *previous* call's numbers, because
+    the tool runner executes a turn's tools after yielding the message that asked for them.
+    """
+    run = Run(alert_id="test", signature="test", mode="cold", effort="high")
+    streamed: list[dict[str, object]] = []
+    with T.bind(seeded, run, on_call=lambda c: streamed.append(
+            {"tool": c.tool, "rows": c.rows, "ms": c.ms, "order": c.order})):
+        T.owner_of("checkout-api")
+        T.blast_radius("orders-db")
+
+    assert [e["tool"] for e in streamed] == ["owner_of", "blast_radius"]
+    assert [e["order"] for e in streamed] == [0, 1]
+    # Every streamed event matches the ledger row for the same call — same tool, same rows.
+    assert [(e["tool"], e["rows"]) for e in streamed] == [(c.tool, c.rows) for c in run.calls]
+    assert all(e["rows"] > 0 for e in streamed), "a row count attributed to the wrong call"
+
+
+def test_on_call_fires_without_a_ledger_run(seeded):
+    """The hook is independent of the ledger, so the demo can stream a run it does not record."""
+    streamed: list[str] = []
+    with T.bind(seeded, None, on_call=lambda c: streamed.append(c.tool)):
+        T.owner_of("checkout-api")
+        T.owner_of("orders-db")
+    assert streamed == ["owner_of", "owner_of"]
+
+
 def test_hops_is_validated_not_interpolated_blindly(bound):
     """Variable-length bounds cannot be parameterised, so the depth is interpolated — which makes
     validating it a correctness requirement, not a nicety."""
@@ -186,3 +216,77 @@ def test_record_outcome_accepts_no_culprit(seeded, alert):
         "MATCH (i:Incident {id: $i})-[c:CAUSED_BY]->() RETURN count(c) AS n", {"i": iid})
     assert caused == 0
     seeded.write("MATCH (i:Incident {id: $i}) DETACH DELETE i", {"i": iid})
+
+
+# --- confidence is computed, never taken from the model ---------------------------------
+
+
+def test_recorded_confidence_ignores_the_model_s_estimate(seeded, scratch):
+    """The project's central claim is that ranking is computed, not asked of a model. Confidence
+    is the one number in the verdict a model could plausibly have been left to invent, so the
+    write path recomputes it and keeps the model's estimate only for comparison."""
+    alert = seeded.one("""MATCH (i:Incident)-[:CAUSED_BY]->(c:Commit)
+                          MATCH (i)-[:TRIGGERED_BY]->(x:Alert)
+                          RETURN x.id AS alert, c.sha AS sha LIMIT 1""")
+    expected, facts = T.computed_confidence(seeded, alert_id=alert["alert"], sha=alert["sha"])
+
+    run = Run(alert_id=alert["alert"], signature="sig-conf", mode="cold", effort="high")
+    with T.bind(seeded, run):
+        out = T.record_outcome(
+            incident_id="inc-conf-test", alert_id=alert["alert"], signature="sig-conf",
+            culprit_sha=alert["sha"], confidence=0.01, impacted_services=[],
+        )
+    try:
+        row = seeded.one("""MATCH (:Incident {id: 'inc-conf-test'})-[cb:CAUSED_BY]->(:Commit)
+                            RETURN cb.confidence AS stored, cb.model_confidence AS model,
+                                   cb.overlap AS overlap, cb.files_changed AS files,
+                                   cb.distance_hops AS distance""")
+        assert row["stored"] == pytest.approx(expected)
+        assert row["stored"] != pytest.approx(0.01), "the model's estimate was stored"
+        assert row["model"] == pytest.approx(0.01), "the model's estimate was not kept"
+        assert (row["overlap"], row["files"], row["distance"]) == (
+            facts["overlap"], facts["files_changed"], facts["distance"])
+        # Handed back so the verdict can quote the computed number instead of its own guess.
+        assert out["confidence"] == pytest.approx(expected)
+        assert out["your_estimate_was"] == pytest.approx(0.01)
+    finally:
+        seeded.write("MATCH (i:Incident {id: 'inc-conf-test'}) DETACH DELETE i")
+        seeded.write("MATCH (p:Plan {signature: 'sig-conf'}) DETACH DELETE p")
+        seeded.write("MATCH (s:Step) WHERE s.id STARTS WITH 'inc-conf-test' DETACH DELETE s")
+
+
+def test_seeded_confidences_are_computed_not_random(seeded):
+    """The historical incidents are what `recall_plan` and `prior_incidents` hand the model as
+    evidence. A seeded `uniform(0.62, 0.93)` would make those the only numbers in the graph with
+    no arithmetic behind them."""
+    rows = seeded.q("""MATCH (i:Incident)-[cb:CAUSED_BY]->(c:Commit)
+                       MATCH (i)-[:TRIGGERED_BY]->(x:Alert)
+                       RETURN x.id AS alert, c.sha AS sha, cb.confidence AS stored""")
+    assert rows, "no seeded incident has a culprit"
+    for r in rows:
+        expected, _ = T.computed_confidence(seeded, alert_id=r["alert"], sha=r["sha"])
+        assert r["stored"] == pytest.approx(expected), r["alert"]
+
+
+def test_distance_term_is_zero_only_when_the_deploy_hit_the_failing_service(seeded):
+    facts = seeded.q("""MATCH (i:Incident)-[cb:CAUSED_BY]->(c:Commit)-[ci:IN]->(d:Deploy)
+                        MATCH (i)-[:TRIGGERED_BY]->(x:Alert)-[:FIRED_ON]->(f:Service)
+                        WHERE ID(cb) >= 0 AND ID(ci) >= 0
+                        RETURN x.id AS alert, c.sha AS sha, f.name AS failing LIMIT 20""")
+    for r in facts:
+        got = T.confidence_facts(seeded, alert_id=r["alert"], sha=r["sha"])
+        if got["distance"] == 0:
+            assert r["failing"] in got["touched"]
+        else:
+            assert r["failing"] not in got["touched"]
+
+
+def test_blast_radius_hop_cap_covers_the_whole_mesh(seeded):
+    """`blast_radius` traverses `*1..5`, while the demo page walks the callers unbounded. They
+    agree only while no dependency chain is longer than the cap; a deeper mesh would make the
+    drawing and the verdict disagree silently, so the cap is pinned to the graph's diameter."""
+    longest = seeded.scalar("""MATCH (c:Service)-[deps:DEPENDS_ON*1..8]->(:Service)
+                               WHERE ALL(d IN relationships(deps) WHERE ID(d) >= 0)
+                               RETURN max(length(deps)) AS d""")
+    assert int(longest) <= 5, (
+        f"longest dependency chain is {longest} hops but blast_radius only follows 5")

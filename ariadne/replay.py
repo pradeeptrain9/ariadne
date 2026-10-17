@@ -8,7 +8,8 @@ Two guards make the result mean something:
 
 * **accuracy** — a warm run must reach the same culprit commit as its cold counterpart. A cheap
   wrong answer is worse than an expensive right one, so this is asserted rather than eyeballed.
-* **determinism** — the graph is reseeded from a fixed seed, so both arms see an identical world.
+* **determinism** — the graph comes from a fixed seed (`python -m ariadne.seed`, run before this
+  harness, not by it), so a re-measurement is against the same world rather than a new one.
 
 Everything printed comes from `runs.jsonl`. No number here is typed by hand.
 """

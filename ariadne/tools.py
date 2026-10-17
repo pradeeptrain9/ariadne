@@ -28,6 +28,7 @@ from anthropic import beta_tool
 
 from .graph import Ariadne
 from .ledger import Run, ToolCall
+from .scoring import confidence as score_confidence
 from .signature import DEPLOY_WINDOW_MS
 
 MAX_HOPS = 5
@@ -37,20 +38,36 @@ MAX_HOPS = 5
 class ToolContext:
     graph: Ariadne
     run: Run | None = None
+    #: Called with each ToolCall once the tool body has returned. The demo's event stream uses
+    #: it: row counts and latencies only exist *after* execution, so they cannot be read off the
+    #: assistant message that requested the call.
+    on_call: Callable[[ToolCall], None] | None = None
+    _order: int = 0
+
+    def next_order(self) -> int:
+        """Position of the call about to be recorded."""
+        return len(self.run.calls) if self.run is not None else self._order
 
 
 _CTX: ContextVar[ToolContext | None] = ContextVar("ariadne_tool_ctx", default=None)
 
 
 @contextmanager
-def bind(graph: Ariadne, run: Run | None = None) -> Iterator[ToolContext]:
+def bind(
+    graph: Ariadne,
+    run: Run | None = None,
+    on_call: Callable[[ToolCall], None] | None = None,
+) -> Iterator[ToolContext]:
     """Make a graph (and optionally a ledger Run) visible to the tools.
 
     The graph cannot be a tool argument — the model must not be able to choose which database it
     talks to, and the generated tool schema should contain only things the model legitimately
     decides.
+
+    `on_call` receives each completed ToolCall, which is how the demo streams a tool's real row
+    count and duration.
     """
-    ctx = ToolContext(graph=graph, run=run)
+    ctx = ToolContext(graph=graph, run=run, on_call=on_call)
     token = _CTX.set(ctx)
     try:
         yield ctx
@@ -91,17 +108,22 @@ def _recorded(name: str, args: dict[str, Any], fn: Callable[[Ariadne], Any]) -> 
         ok, error = False, str(exc)
         raise
     finally:
-        if ctx.run is not None:
+        if ctx.run is not None or ctx.on_call is not None:
             if isinstance(out, dict) and "rows" in out:
                 rows = len(out["rows"])
             elif isinstance(out, list):
                 rows = len(out)
             else:
                 rows = 0 if out is None else 1
-            ctx.run.add_call(ToolCall(
-                order=len(ctx.run.calls), tool=name, args=args, rows=rows,
+            call = ToolCall(
+                order=ctx.next_order(), tool=name, args=args, rows=rows,
                 ms=int((time.perf_counter() - started) * 1000), ok=ok, error=error,
-            ))
+            )
+            ctx._order = call.order + 1
+            if ctx.run is not None:
+                ctx.run.add_call(call)
+            if ctx.on_call is not None:
+                ctx.on_call(call)
 
 
 def _hops(n: int) -> int:
@@ -403,6 +425,79 @@ def runbook_for(service: str) -> dict[str, Any]:
     return _recorded("runbook_for", {"service": service}, body)
 
 
+#: Facts behind a culprit's confidence. Read from the graph at write time, so the number stored
+#: on `CAUSED_BY` is arithmetic over the graph rather than whatever the model estimated.
+_CONFIDENCE_FACTS = """
+MATCH (x:Alert {id: $aid})-[fo:FIRED_ON]->(f:Service)
+WHERE ID(fo) >= 0
+MATCH (c:Commit {sha: $sha})-[ci:IN]->(d:Deploy)
+WHERE ID(ci) >= 0
+OPTIONAL MATCH (d)-[t:TOUCHED]->(tch:Service)
+WHERE ID(t) >= 0
+WITH f, x, c, d,
+     size([fl IN c.files WHERE ANY(owned IN f.paths WHERE fl STARTS WITH owned)]) AS overlap,
+     size(c.files) AS files_changed,
+     collect(DISTINCT tch.name) AS touched
+RETURN f.name AS failing, x.at AS alert_at, d.at AS deploy_at, d.id AS deploy,
+       overlap, files_changed, touched
+"""
+
+#: Dependency hops from the failing service to the nearest service the deploy touched.
+#: `shortestPath` is only legal in a WITH or RETURN clause on FalkorDB — see docs/decisions.md.
+_CONFIDENCE_DISTANCE = """
+MATCH (f:Service {name: $failing})
+UNWIND $touched AS tn
+MATCH (t:Service {name: tn})
+WITH shortestPath((f)-[:DEPENDS_ON*1..5]->(t)) AS p
+WHERE p IS NOT NULL
+RETURN min(length(p)) AS distance
+"""
+
+
+def confidence_facts(a: Ariadne, *, alert_id: str, sha: str) -> dict[str, Any] | None:
+    """The terms behind a confidence score, read out of the graph.
+
+    `distance` is 0 when the deploy touched the failing service itself, otherwise the fewest
+    dependency hops from the failing service to a service that deploy touched. A deploy that
+    touched neither the failing service nor anything it depends on cannot have reached it along
+    the mesh, and scores at the maximum distance rather than being treated as adjacent.
+    """
+    row = a.one(_CONFIDENCE_FACTS, {"aid": alert_id, "sha": sha})
+    if row is None:
+        return None
+    failing = row["failing"]
+    touched = [t for t in (row["touched"] or []) if t]
+    if failing in touched:
+        distance = 0
+    else:
+        hop = a.one(_CONFIDENCE_DISTANCE, {"failing": failing, "touched": touched}) if touched \
+            else None
+        distance = (int(hop["distance"])
+                    if hop is not None and hop["distance"] is not None else MAX_HOPS)
+    return {
+        "failing": failing,
+        "alert_at": int(row["alert_at"]),
+        "deploy": row["deploy"],
+        "deploy_at": int(row["deploy_at"]),
+        "overlap": int(row["overlap"]),
+        "files_changed": int(row["files_changed"]),
+        "distance": distance,
+        "touched": touched,
+    }
+
+
+def computed_confidence(a: Ariadne, *, alert_id: str, sha: str) -> tuple[float, dict[str, Any]]:
+    """`scoring.confidence` over those facts. Returns the score and the facts it came from."""
+    facts = confidence_facts(a, alert_id=alert_id, sha=sha)
+    if facts is None:
+        raise KeyError(f"no alert {alert_id!r} or commit {sha!r} to score")
+    return score_confidence(
+        overlap=facts["overlap"], files_changed=facts["files_changed"],
+        distance=facts["distance"], deploy_at=facts["deploy_at"],
+        alert_at=facts["alert_at"],
+    ), facts
+
+
 # ======================================================================================
 # write-back
 # ======================================================================================
@@ -430,8 +525,11 @@ def record_outcome(
         alert_id: the alert that triggered this.
         signature: the structural signature from the briefing.
         culprit_sha: the commit sha you concluded caused it, or null if none did.
-        confidence: your confidence in that culprit, 0 to 1, as reported by the briefing's
-            confidence computation.
+        confidence: your own estimate, 0 to 1, that this commit is the cause. It is recorded
+            as `model_confidence` for comparison and is *not* the number the verdict reports:
+            `CAUSED_BY.confidence` is recomputed here from the graph (file overlap, dependency
+            distance, deploy-to-alert minutes) so that "where did this number come from" has an
+            arithmetic answer.
         impacted_services: service names from blast_radius.
         resolved: whether the investigation reached a verdict.
     """
@@ -440,6 +538,8 @@ def record_outcome(
 
     def body(a: Ariadne) -> dict[str, Any]:
         at = int(time.time() * 1000)
+        computed: float | None = None
+        facts: dict[str, Any] | None = None
         a.write("""
             MERGE (i:Incident {id: $iid})
               ON CREATE SET i.at = $at, i.status = $status, i.signature = $sig
@@ -450,11 +550,19 @@ def record_outcome(
               "status": "resolved" if resolved else "open"})
 
         if culprit_sha:
+            # The verdict's confidence is computed here, from the graph. The model's own estimate
+            # is kept beside it rather than used: a number a model chose is not evidence, and the
+            # two differing is itself worth being able to see.
+            computed, facts = computed_confidence(a, alert_id=alert_id, sha=culprit_sha)
             a.write("""
                 MATCH (i:Incident {id: $iid}), (c:Commit {sha: $sha})
                 MERGE (i)-[cb:CAUSED_BY]->(c)
-                SET cb.confidence = $conf, cb.verified = false
-            """, {"iid": incident_id, "sha": culprit_sha, "conf": float(confidence)})
+                SET cb.confidence = $conf, cb.model_confidence = $model_conf,
+                    cb.overlap = $overlap, cb.files_changed = $files_changed,
+                    cb.distance_hops = $distance, cb.verified = false
+            """, {"iid": incident_id, "sha": culprit_sha, "conf": float(computed),
+                  "model_conf": float(confidence), "overlap": facts["overlap"],
+                  "files_changed": facts["files_changed"], "distance": facts["distance"]})
 
         if impacted_services:
             a.write("""
@@ -508,8 +616,23 @@ def record_outcome(
                 CREATE (s)-[:OUTCOME]->(res)
             """, {"sig": signature, "rows": steps})
 
-        return {"incident": incident_id, "plan_signature": signature,
-                "steps_recorded": len(steps), "culprit": culprit_sha}
+        out: dict[str, Any] = {"incident": incident_id, "plan_signature": signature,
+                               "steps_recorded": len(steps), "culprit": culprit_sha}
+        if computed is not None and facts is not None:
+            # Handed back so the written verdict can quote the computed number rather than the
+            # estimate the model arrived with.
+            out["confidence"] = computed
+            out["confidence_terms"] = {
+                "path_overlap": f"{facts['overlap']}/{facts['files_changed']} changed files "
+                                f"under {facts['failing']}'s owned paths",
+                "distance_hops": facts["distance"],
+                "deploy_to_alert_minutes": round(
+                    (facts["alert_at"] - facts["deploy_at"]) / 60000, 1),
+            }
+            out["your_estimate_was"] = float(confidence)
+            out["note"] = ("confidence is computed from the graph, not taken from your estimate; "
+                           "report the `confidence` value above")
+        return out
 
     return _recorded("record_outcome", {"incident_id": incident_id, "alert_id": alert_id}, body)
 

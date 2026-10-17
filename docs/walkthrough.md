@@ -95,7 +95,14 @@ confidence = clamp(0.1, 0.95,
 
 Every term comes from a Cypher result: `overlap` and `files_changed` from the commit, `distance`
 from the dependency traversal, the deploy time from the `Deploy` node. Asked where a 0.78 came
-from, the answer is the three numbers that produced it.
+from, the answer is the three numbers that produced it — stored on the `CAUSED_BY` edge next to
+it, so the answer does not depend on anyone trusting this document.
+
+`record_outcome` computes it rather than accepting it. The model passes its own estimate, which
+is recorded as `model_confidence` and used for nothing; the verdict reports what the arithmetic
+returned. Worth saying plainly because it was not true at first — the model's number went
+straight into the graph, which made confidence the one part of the verdict that was prose
+wearing a decimal point.
 
 The model's job is choosing which tool to call next and writing the explanation. Remove the model
 and the verdict is unchanged — it just reads worse. That division is deliberate: a model asked
@@ -181,7 +188,7 @@ cost the same as deriving it — measured at 1.1×, with warm runs burning *more
 because the plan steps were injected into the prompt and the agent still did all the work. A
 memory that replays everything saves nothing.
 
-What fixed it: `recall_plan` now returns a **hypothesis** computed from the graph — "in 13 of 13
+What fixed it: `recall_plan` now returns a **hypothesis** computed from the graph — "in 9 of 9
 prior incidents of this shape, the cause was a commit in a deploy that touched the failing
 service itself" — bundled with the *current* blast radius, owner and runbook, all recomputed in
 the same call so none of it is stale. A hit then leaves exactly one thing to establish: whether
@@ -195,14 +202,15 @@ turns an open-ended search into a single hypothesis test, and bundles four looku
 Three separable effects, and the chart attributes them separately rather than claiming all of it
 for the memory:
 
-1. **Fewer tool calls.** A cold investigation runs 12–15; a replay runs 3–5. Fewer round trips,
-   fewer tool results in context. This is the memory.
+1. **Fewer tool calls.** Measured: a cold investigation runs 7, a replay runs 4. Fewer round
+   trips, fewer tool results in context. This is the memory.
 2. **Lower effort.** `output_config.effort` is `high` cold, `low` on replay — a replay follows a
    known sequence rather than reasoning from scratch, so low effort is *correct* there, not just
    cheaper.
 3. **Prompt caching.** Tool definitions, system prompt and the frozen schema block are the stable
-   prefix; the alert payload goes after the last breakpoint. Verified, not assumed — a test
-   asserts `cache_read_input_tokens > 0` on the second call of a session, because a stray
+   prefix; the alert payload goes after the last breakpoint. Verified, not assumed —
+   `python -m ariadne.agent --check-cache` writes the prefix on one call and reads all of it back
+   on the next, and a test asserts the breakpoint is still on the last tool definition. A stray
    timestamp in the system prompt would silently invalidate the prefix and the headline number
    would quietly be wrong.
 

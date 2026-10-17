@@ -138,6 +138,14 @@ deliberate rather than an oversight if a judge asks.
 3. **Indexes do not optimize `<>`.** No query filters on not-equal over an indexed property.
 4. **No aggregations inside pattern comprehensions.** Aggregate in a preceding `WITH`, or use
    `size()` over a list comprehension.
+5. **`shortestPath` is legal only in a `WITH` or `RETURN` clause**, not as a `MATCH` pattern.
+   `MATCH p = shortestPath((a)-[:D*1..5]->(b))` — the spelling every Cypher example uses — fails
+   with "FalkorDB currently only supports shortestPaths in WITH or RETURN clauses". Write
+   `WITH shortestPath((a)-[:D*1..5]->(b)) AS p` instead. The confidence distance term needs it.
+6. **A node is not at distance 0 from itself** under `*1..n`: `shortestPath` returns an empty
+   path and a `NULL` length rather than a one-node path. `*0..n` returns the node at length 0.
+   `confidence_facts` therefore decides "the deploy touched the failing service" in Python and
+   only asks the graph about genuinely upstream deploys.
 
 ## Stack
 
@@ -145,9 +153,9 @@ deliberate rather than an oversight if a judge asks.
 |---|---|---|
 | Graph | FalkorDB, Docker, pinned by digest at first pull on Day 1 | Rule 2/4. Pinning keeps the demo reproducible for judges. |
 | Client | `falkordb` Python package | Official. |
-| Model | `claude-opus-5`, adaptive thinking | Current Opus; `budget_tokens` does not exist on it. Effort is the cost lever. |
+| Model | `claude-sonnet-5`, adaptive thinking | `budget_tokens` does not exist on it; effort is the cost lever. Moved from `claude-opus-5` for cost — the cold/warm ratio survived the change, which is why the claim is a ratio. |
 | Agent loop | `client.beta.messages.tool_runner` with `@beta_tool` | No reason to hand-roll the loop; per-turn hooks cover approval and usage capture. |
-| Embeddings | local sentence-transformer, 384-dim | Offline, free, keeps the ledger clean. |
+| Embeddings | deterministic 384-dim unit vector derived from the signature (`seed._plan_embedding`) | Placeholder, and labelled as one in the code. The vector index is the *secondary*, near-miss recall path; signature collision is the primary one and needs no embedding. A real local sentence-transformer is the drop-in, and the dimension and similarity function are already the real ones. |
 | MCP | `mcp` package, stdio, reflecting over the same registry | Track 01 names MCP tool selection. One registry, two transports. |
 | Frontend | single HTML page, no framework | It must work in a video on Day 4, not scale. |
 

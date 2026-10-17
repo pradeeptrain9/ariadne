@@ -30,8 +30,7 @@ import anthropic
 
 from . import tools as T
 from .graph import Ariadne
-from .ledger import Run, LEDGER_PATH
-from .scoring import explain
+from .ledger import Run, ToolCall, LEDGER_PATH
 from .signature import signature_of
 
 #: Sonnet 5: adaptive thinking and the full effort range, at 2.5x less than Opus 5. Prices for
@@ -77,10 +76,14 @@ How to work:
    ranking scores those low. If you suspect one, say so explicitly and explain why you are going
    against the ranking.
 5. Finish by calling `record_outcome`. Pass `culprit_sha: null` when no commit is responsible.
+   Its `confidence` argument is your own estimate and is recorded only for comparison: the
+   verdict's confidence is computed from the graph — file overlap, dependency distance, minutes
+   from deploy to alert — and comes back in the result. Report *that* number and the terms
+   beside it, never your estimate.
 
 Then write the verdict as a handful of short bullets — no headings, no tables, no preamble.
-Cover: the culprit (or that there isn't one), the confidence and what it was computed from, the
-impacted services, the owner to page, and the runbook. Be specific and brief. State what you did
+Cover: the culprit (or that there isn't one), the confidence `record_outcome` returned and what
+it was computed from, the impacted services, the owner to page, and the runbook. Be specific and brief. State what you did
 not establish rather than filling the gap with a plausible sentence."""
 
 
@@ -173,7 +176,19 @@ def investigate(
     # *before* calling record_outcome and then adds a one-line closer after it; keeping only
     # the last block showed the closer and threw the verdict away.
     texts: list[str] = []
-    with T.bind(a, run):
+
+    def on_call(call: ToolCall) -> None:
+        """Stream a tool call once it has actually run.
+
+        The rows and duration are emitted from here rather than from the `tool_use` block of the
+        assistant message, because the tool runner executes a turn's tools *after* yielding the
+        message that requested them — reading `run.calls[-1]` there reported the previous call's
+        numbers against this call's name, and never reported the last call's at all.
+        """
+        emit("tool", {"name": call.tool, "input": call.args, "rows": call.rows,
+                      "ms": call.ms, "ok": call.ok, "error": call.error})
+
+    with T.bind(a, run, on_call=on_call):
         runner = client.beta.messages.tool_runner(
             model=MODEL,
             max_tokens=MAX_TOKENS,
@@ -205,9 +220,6 @@ def investigate(
                 elif block.type == "tool_use":
                     if verbose:
                         print(f"  → {block.name}({json.dumps(block.input)[:110]})")
-                    emit("tool", {"name": block.name, "input": block.input,
-                                  "rows": run.calls[-1].rows if run.calls else None,
-                                  "ms": run.calls[-1].ms if run.calls else None})
 
     final_text = "\n\n".join(texts)
     run.finish()

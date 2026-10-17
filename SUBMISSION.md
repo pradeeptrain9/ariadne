@@ -119,7 +119,7 @@ deriving it cost — and the injected steps made the prompt bigger. A memory tha
 everything saves nothing. The mechanism worked (same culprit both arms); the economics did not
 exist.
 
-What fixed it: `recall_plan` now returns a **hypothesis computed from the graph** — *"in 13 of 13
+What fixed it: `recall_plan` now returns a **hypothesis computed from the graph** — *"in 9 of 9
 prior incidents of this shape, the cause was a commit in a deploy that touched the failing
 service itself"* — bundled with the current blast radius, owner and runbook, all recomputed in
 the same call so none of it is stale. A hit then leaves exactly one thing to establish: whether

@@ -10,7 +10,7 @@ served over two transports (in-process for the agent, MCP stdio for external cli
  signature.py ──── deterministic structural fingerprint (no model involved)
       │
       ▼
-  agent.py ─── client.beta.messages.tool_runner(model="claude-opus-5", tools=REGISTRY)
+  agent.py ─── client.beta.messages.tool_runner(model="claude-sonnet-5", tools=REGISTRY)
       │                    │
       │                    ├── recall_plan ──────┐
       │                    ├── upstream_candidates│
@@ -59,8 +59,21 @@ confidence = clamp(0.1, 0.95,
 )
 ```
 
-Every term comes from a Cypher result. The model reports this number; it does not invent it. If a
-judge asks "where does 0.78 come from", the answer is arithmetic.
+Every term comes from a Cypher result, and the number is computed **at write time**, in
+`tools.computed_confidence`, not taken from the model. `record_outcome` recomputes it from the
+graph, stores it on `CAUSED_BY` together with its terms (`overlap`, `files_changed`,
+`distance_hops`), and returns it so the written verdict quotes it. The model's own estimate is
+stored beside it as `model_confidence` and is used for nothing — it is there so the two can be
+compared.
+
+This was wrong until Day 2: the model passed a confidence and `record_outcome` wrote it straight
+through, so the one number in the verdict that reads most like a measurement was the only one
+the model had invented. The seeded history had the same hole — 68 historical confidences from
+`rng.uniform(0.62, 0.93)`, handed to the model as evidence by `recall_plan`. Both now come from
+the formula above.
+
+Asked "where does 0.78 come from", the answer is the three numbers that produced it, and they
+are on the edge.
 
 ## Cost discipline
 

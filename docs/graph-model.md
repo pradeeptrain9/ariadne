@@ -52,7 +52,7 @@ subgraph the agent reasons over, and the **procedural memory** subgraph the agen
 | `(Service)-[:EXHIBITS]->(FailureMode)` | `seen_count` | Links a symptom to a known class of failure. |
 | `(Runbook)-[:FIXES]->(FailureMode)` | — | Turns a diagnosis into an action. |
 | `(Incident)-[:TRIGGERED_BY]->(Alert)` | — | |
-| `(Incident)-[:CAUSED_BY]->(Commit)` | `confidence` (0–1), `verified` (bool) | The verdict, stored. `verified` separates "the agent said so" from "a human confirmed it". |
+| `(Incident)-[:CAUSED_BY]->(Commit)` | `confidence` (0–1), `model_confidence` (0–1), `overlap`, `files_changed`, `distance_hops`, `verified` (bool) | The verdict, stored. `confidence` is computed by `scoring.confidence` from the three terms stored beside it, so the number is auditable from the edge alone; `model_confidence` is what the model guessed and is used for nothing. `verified` separates "the agent said so" from "a human confirmed it". |
 | `(Incident)-[:IMPACTED]->(Service)` | `depth` | Blast radius, stored at resolution time. |
 
 ## Procedural memory subgraph

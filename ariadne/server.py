@@ -22,10 +22,29 @@ from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 from . import ledger as L
+from . import tools as T
 from .agent import investigate
 from .graph import Ariadne
+from .scoring import explain
 
 WEB = Path(__file__).resolve().parent.parent / "web"
+
+#: The runs committed to the repo, used when this machine has not measured anything yet.
+SHIPPED_LEDGER = Path(__file__).resolve().parent.parent / "docs" / "measurements" / "runs.jsonl"
+
+
+def ledger_rows() -> tuple[Path, list[dict[str, Any]]]:
+    """This session's ledger if it holds anything, else the measurements the repo ships.
+
+    A fresh clone has no `runs.jsonl`, so the cold-vs-warm panel opened empty until the judge had
+    both an API key and two completed arms. The payload names the file it read, and the page says
+    so: pre-recorded numbers shown as if they were from this machine would be a lie, and the
+    whole point of the ledger is that no number is asserted without a file behind it.
+    """
+    rows = L.load()
+    if rows:
+        return L.LEDGER_PATH, rows
+    return SHIPPED_LEDGER, L.load(SHIPPED_LEDGER)
 
 
 def graph_payload(a: Ariadne) -> dict[str, Any]:
@@ -48,6 +67,89 @@ def graph_payload(a: Ariadne) -> dict[str, Any]:
         for label in ("Service", "Commit", "Deploy", "Alert", "Incident", "Plan", "Step")
     }
     return {"services": services, "deps": deps, "stats": stats}
+
+
+#: The chain behind a recorded verdict: alert → failing service → deploy → commit → author.
+#: This is the one query here that the tool layer does not already have; everything else the
+#: verdict needs is fetched by calling the tools, so there is no second copy of that Cypher.
+_VERDICT_CHAIN = """
+MATCH (i:Incident {id: $iid})-[tb:TRIGGERED_BY]->(x:Alert)-[fo:FIRED_ON]->(f:Service)
+WHERE ID(tb) >= 0 AND ID(fo) >= 0
+OPTIONAL MATCH (i)-[cb:CAUSED_BY]->(c:Commit)
+OPTIONAL MATCH (c)-[ci:IN]->(d:Deploy)
+OPTIONAL MATCH (c)-[ab:AUTHORED_BY]->(p:Person)
+RETURN i.status AS status, f.name AS failing, x.id AS alert, x.metric AS metric,
+       x.value AS value, x.severity AS severity, x.at AS alert_at,
+       c.sha AS sha, c.msg AS msg, cb.confidence AS confidence,
+       cb.model_confidence AS model_confidence,
+       d.id AS deploy, d.at AS deploy_at, p.handle AS author, p.name AS author_name
+"""
+
+
+def verdict_payload(a: Ariadne, incident_id: str) -> dict[str, Any] | None:
+    """The verdict as the graph holds it, not as the model wrote it.
+
+    The page renders this above the model's prose. Both describe the same incident, and when they
+    disagree the computed one is the answer — the culprit, the confidence and its terms, the
+    impact and the owner are all traversals and arithmetic, and `record_outcome` is what the
+    model actually asserted. Showing only the prose would make the demo a story about an answer
+    instead of the answer.
+    """
+    chain = a.one(_VERDICT_CHAIN, {"iid": incident_id})
+    if chain is None:
+        return None
+
+    failing = chain["failing"]
+    with T.bind(a):  # no Run: these lookups are the page's, not steps of an investigation
+        impact = T.blast_radius(failing)
+        owners = T.owner_of(failing)["rows"]
+        runbooks = T.runbook_for(failing)["rows"]
+        cone = T.upstream_candidates(failing, 3)["rows"]
+        suspects = (T.suspect_commits([chain["deploy"]], failing)["rows"]
+                    if chain["deploy"] else [])
+
+    culprit: dict[str, Any] | None = None
+    if chain["sha"]:
+        row = next((r for r in suspects if r["sha"] == chain["sha"]), None)
+        culprit = {
+            "sha": chain["sha"],
+            "msg": chain["msg"],
+            "author": chain["author"],
+            "author_name": chain["author_name"],
+            "deploy": chain["deploy"],
+            "deploy_at": chain["deploy_at"],
+            "confidence": chain["confidence"],
+            "model_confidence": chain["model_confidence"],
+            "overlap": row["overlap"] if row else None,
+            "files_changed": row["files_changed"] if row else None,
+        }
+        # The terms, recomputed from the graph rather than parsed back out of the model's
+        # sentence. `confidence_facts` supplies the real dependency distance; assuming 0 would
+        # overstate a culprit that shipped several hops upstream.
+        facts = T.confidence_facts(a, alert_id=chain["alert"], sha=chain["sha"])
+        if facts is not None:
+            culprit["terms"] = explain(
+                overlap=facts["overlap"], files_changed=facts["files_changed"],
+                distance=facts["distance"], deploy_at=facts["deploy_at"],
+                alert_at=facts["alert_at"],
+            )
+            culprit["distance_hops"] = facts["distance"]
+
+    return {
+        "incident": incident_id,
+        "status": chain["status"],
+        "alert": {"id": chain["alert"], "metric": chain["metric"], "value": chain["value"],
+                  "severity": chain["severity"], "at": chain["alert_at"]},
+        "failing": failing,
+        "culprit": culprit,
+        "impacted": impact["impacted"],
+        "impacted_count": impact["impacted_count"],
+        "tier1_impacted": impact["tier1_impacted"],
+        "cone": [r["service"] for r in cone],
+        "owner": owners[0] if owners else None,
+        "owners": owners,
+        "runbook": runbooks[0] if runbooks else None,
+    }
 
 
 def alert_payload(a: Ariadne, alert_id: str) -> dict[str, Any] | None:
@@ -117,8 +219,17 @@ class Handler(BaseHTTPRequestHandler):
             elif route.path == "/api/alerts":
                 self._json(demo_alerts(self._graph))
             elif route.path == "/api/ledger":
-                rows = L.load()
-                self._json({"runs": rows, "summary": L.compare(rows)})
+                source, rows = ledger_rows()
+                self._json({"runs": rows, "summary": L.compare(rows),
+                            "source": source.name if source == L.LEDGER_PATH
+                                      else "docs/measurements/runs.jsonl",
+                            "live": source == L.LEDGER_PATH})
+            elif route.path == "/api/verdict":
+                payload = verdict_payload(self._graph, query.get("incident", [""])[0])
+                if payload is None:
+                    self._json({"error": "no such incident"}, 404)
+                else:
+                    self._json(payload)
             elif route.path == "/api/investigate":
                 self._stream(query.get("alert", [""])[0], query.get("mode", [None])[0])
             else:

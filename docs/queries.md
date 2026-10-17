@@ -245,11 +245,48 @@ MERGE (i)-[:TRIGGERED_BY]->(x)
 ```cypher
 MATCH (i:Incident {id: $iid}), (c:Commit {sha: $sha})
 MERGE (i)-[cb:CAUSED_BY]->(c)
-SET cb.confidence = $conf, cb.verified = false
+SET cb.confidence = $conf, cb.model_confidence = $model_conf,
+    cb.overlap = $overlap, cb.files_changed = $files_changed,
+    cb.distance_hops = $distance, cb.verified = false
 ```
 
 Skipped entirely when there is no culprit — a structural cause is a valid verdict, and recording
 a commit anyway would poison the memory for every future incident of that shape.
+
+`$conf` is **not** the confidence the model passed in. It is `scoring.confidence` applied to
+facts read from the graph immediately before the write, by `tools.computed_confidence`. The
+model's own estimate is stored beside it as `model_confidence`, and the terms are stored too, so
+"where did this number come from" is answerable from the edge alone. The facts:
+
+```cypher
+MATCH (x:Alert {id: $aid})-[fo:FIRED_ON]->(f:Service)
+WHERE ID(fo) >= 0
+MATCH (c:Commit {sha: $sha})-[ci:IN]->(d:Deploy)
+WHERE ID(ci) >= 0
+OPTIONAL MATCH (d)-[t:TOUCHED]->(tch:Service)
+WHERE ID(t) >= 0
+WITH f, x, c, d,
+     size([fl IN c.files WHERE ANY(owned IN f.paths WHERE fl STARTS WITH owned)]) AS overlap,
+     size(c.files) AS files_changed,
+     collect(DISTINCT tch.name) AS touched
+RETURN f.name AS failing, x.at AS alert_at, d.at AS deploy_at, d.id AS deploy,
+       overlap, files_changed, touched
+```
+
+and the distance term, which is 0 when the deploy touched the failing service itself and
+otherwise the fewest dependency hops to a service it did touch:
+
+```cypher
+MATCH (f:Service {name: $failing})
+UNWIND $touched AS tn
+MATCH (t:Service {name: tn})
+WITH shortestPath((f)-[:DEPENDS_ON*1..5]->(t)) AS p
+WHERE p IS NOT NULL
+RETURN min(length(p)) AS distance
+```
+
+`shortestPath` is legal only in a `WITH` or `RETURN` clause here, not inside a `MATCH`
+pattern — see [decisions.md](decisions.md).
 
 ```cypher
 MATCH (i:Incident {id: $iid})

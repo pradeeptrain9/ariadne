@@ -12,3 +12,6 @@ __pycache__/
 # the working ledger (git has no trailing-comment syntax, so this note gets its own line);
 # the committed evidence lives in docs/measurements/
 /runs.jsonl
+
+# Build artifact from `pip install -e .` — the README quick start creates it.
+*.egg-info/

@@ -3,8 +3,9 @@
 Every turn's `usage` is appended to a JSONL file and the cold-vs-warm chart is generated from it.
 No number in the submission is typed by hand — that is the point of this module.
 
-Prices are Claude Opus 5 list rates. They are constants here rather than fetched, so a reader can
-see exactly what the dollar figures were computed with.
+Prices are list rates per model, in `PRICES`. They are constants here rather than fetched, so a
+reader can see exactly what the dollar figures were computed with, and every ledger row records
+the model it was priced with.
 """
 
 from __future__ import annotations

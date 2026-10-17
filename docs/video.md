@@ -17,8 +17,9 @@ docker compose up -d
 .venv/bin/python -m ariadne.server
 ```
 
-- Keep `runs.jsonl` from a previous `replay --n 3` so the cold/warm bars are already populated
-  when the page loads. An empty chart in shot 1 wastes the payoff.
+- The cold/warm bars are populated on load either way: with no local `runs.jsonl` the page reads
+  the committed `docs/measurements/runs.jsonl` and says so on the caption line. Record a fresh
+  `replay --n 3` first only if you want the caption to read "measured on this machine".
 - Browser at 1440×900, dark mode, zoom 100%. Hide bookmarks bar.
 - Second terminal ready for shot 5, font size up.
 - Close anything that can produce a notification.
@@ -34,7 +35,8 @@ Page loaded, nothing running.
 > graph of forty services, their deploys, their commits, and the people who own them. Nothing
 > here is pre-computed."
 
-Cursor traces the three tiers. Do not click yet.
+Cursor traces the three tiers. Do not click yet. The run legend (failing / blast radius /
+dependency cone) is hidden until a run starts, so there is nothing on screen yet to explain.
 
 **2 · 0:20–1:05 — a cold investigation**
 
@@ -53,7 +55,20 @@ As the mesh lights:
 > "Nine services break when catalog-service breaks. Six of them are customer-facing. That's a
 > traversal, not an estimate."
 
-On the verdict, land on the honesty beat — this is the moment that separates the entry:
+As the verdict lands, point at the **computed card above the prose** — this is the shot that
+makes the design rule visible rather than asserted:
+
+> "This card is not the model's answer. It is read back out of the graph the agent just wrote
+> to: the culprit, the chain from alert to service to deploy to commit, and the confidence —
+> with the three numbers that produced it. The model passed its own estimate too. It is stored
+> next to this one and used for nothing."
+
+Two colours on the mesh are worth naming while the card is up:
+
+> "Blue dashed is what it searched for a cause — the dependency cone. Red is what breaks with
+> it. Those are two different traversals answering two different questions."
+
+Then the honesty beat — this is the moment that separates the entry:
 
 > "And it says what it did *not* establish: two commits tie on overlap, so it refuses to pick
 > between them, and it flags a shared-library commit that its own ranking scores low."
@@ -68,12 +83,13 @@ Untick **withhold memory**. Press Investigate again.
 
 Point at the memory-hit line as it appears:
 
-> "Thirteen of thirteen past incidents with this shape were caused by a commit in a deploy to the
+> "Nine of nine past incidents with this shape were caused by a commit in a deploy to the
 > failing service itself. That hypothesis is computed from the graph — it's not the model
 > recalling something."
 
 > "So there's one thing left to check. Four tool calls instead of seven. Half the cost. Same
-> culprit commit — and higher confidence, because the history agrees with the window."
+> culprit commit — and the same computed confidence, because the same three numbers are in the
+> graph either way. Memory changed what it cost to find the answer, not what the answer is."
 
 Let the cold/warm bars update on screen. Pause a beat on them.
 
@@ -127,4 +143,6 @@ honesty beat in shot 2 or the bars in shot 3 — those are the two things judges
 - "AI-powered" anything.
 - That the agent "decides" what caused the incident. It does not; the graph ranks and the model
   explains. Saying otherwise invites exactly the question the design answers.
+- That the model "scores" or "estimates" the confidence. It passes an estimate that is stored
+  and ignored; the number on screen is `scoring.confidence` over three graph facts.
 - Any number not visible on screen at that moment.

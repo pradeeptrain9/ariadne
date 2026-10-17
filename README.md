@@ -17,15 +17,15 @@ Coordination**.
 |---|---|
 | Graph, schema, deterministic seed, verification | done |
 | Nine graph tools, confidence scoring, cost ledger | done |
-| Agent loop (tool runner, caching, effort policy) | written; **unrun** — needs an API key |
-| Cold-vs-warm measurement harness | written; unrun |
+| Agent loop (tool runner, caching, effort policy) | run — six investigations in `runs.jsonl` |
+| Cold-vs-warm measurement harness | run at **3 alerts per arm**; the ledger holds those six runs |
 | MCP server (stdio, read-only by default) | done |
 | Demo page with live streaming run | done |
 | Submission write-up, measurements, video shot list | done |
 | Demo video | not recorded |
 
-Everything below is measured, not projected — 56 tests, and the numbers come out of
-`runs.jsonl`.
+Everything below is measured, not projected — 104 tests, and the numbers come out of
+`runs.jsonl`. The sample is small: three alerts per arm, stated wherever the ratio is.
 
 **Timeline disclosure:** the hackathon window is Oct 15–18. The design notes in `docs/` and the
 graph/seed/verification code in `ariadne/` were written on **Oct 11**, before the window opened —
@@ -42,6 +42,15 @@ decide which commit is suspect and what the blast radius is. Claude decides whic
 and writes the explanation. Remove the model and the verdict is unchanged — it just reads worse.
 Remove the graph and there is no product (rule 3).
 
+The rule is easy to state and easy to break. Until Day 2 the verdict's **confidence** was the
+model's own number: `record_outcome` took it as an argument and wrote it to the graph, and the
+seeded history filled 68 more from `rng.uniform(0.62, 0.93)` — which `recall_plan` then handed
+back to the model as evidence. The one figure in the verdict that reads like a measurement was
+the only one nothing computed. It is now `scoring.confidence` over graph facts, recomputed at
+write time, stored with its terms on the `CAUSED_BY` edge, and asserted by a test; the model's
+estimate is kept beside it as `model_confidence` and used for nothing. Both halves of the fix
+are in [docs/architecture.md](docs/architecture.md).
+
 A model asked *which commit broke this* answers fluently and sometimes wrongly, and nothing
 downstream can tell the difference, because a right answer and a wrong one are both well-formed
 prose.
@@ -54,7 +63,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m ariadne.seed          # deterministic graph + fixtures/scenarios.json
 .venv/bin/python -m ariadne.verify        # graph correctness, prints every number it found
-.venv/bin/python -m pytest -q             # 56 tests, no API key needed
+.venv/bin/python -m pytest -q             # 104 tests, no API key needed
 ```
 
 Verified from a clean clone on a fresh virtualenv, in that order. The install also puts
@@ -93,16 +102,17 @@ the same block with absolute paths in `claude_desktop_config.json`.
 
 ## What the memory is worth
 
-Measured on `claude-sonnet-5`, same alerts in both arms:
+Measured on `claude-sonnet-5`, same alerts in both arms, **three alerts per arm** (six runs):
 
-| | tool calls | tokens | cost | wall |
-|---|---|---|---|---|
-| cold (memory withheld) | 7.0 | 36,320 | $0.0503 | 28.0s |
-| warm (memory available) | 4.0 | 25,867 | $0.0273 | 16.2s |
+| | runs | tool calls | tokens | cost | wall |
+|---|---|---|---|---|---|
+| cold (memory withheld) | 3 | 7.0 | 36,320 | $0.0503 | 28.0s |
+| warm (memory available) | 3 | 4.0 | 25,867 | $0.0273 | 16.2s |
 
 **1.8× cheaper, 1.8× fewer tool calls, same culprit commit on every alert.** Warm runs also
 report higher confidence, because the recalled hypothesis corroborates what the current window
-shows.
+shows. Three alerts per arm is a small sample — it is the ledger's whole contents, and
+`python -m ariadne.replay --n 20` widens it.
 
 The comparison is the same alerts against the same graph, not a warm run on one alert versus a
 cold run on another — that would measure the alerts. `replay.py` asserts the warm arm reached the
@@ -112,7 +122,7 @@ expensive right one.
 Honest caveat: **the first design of this measured 1.1×.** The plan stored a transcript of the
 whole investigation, so replaying it was the same work — memory that replays everything saves
 nothing. What fixed it was making `recall_plan` return a *hypothesis* computed from the graph
-("in 13 of 13 prior incidents of this shape, the cause was a commit in a deploy that touched the
+("in 9 of 9 prior incidents of this shape, the cause was a commit in a deploy that touched the
 failing service itself") bundled with the current impact, owner and runbook. A hit then leaves
 exactly one thing to establish, and the warm path is 4 calls instead of 7. The failure and the
 fix are both in `docs/walkthrough.md`.
@@ -132,10 +142,24 @@ call and reads all of it back on the second.
 
 Needs `ANTHROPIC_API_KEY` — the page drives the real agent.
 
-Pick an alert, press Investigate. Tool calls stream in over SSE as they happen, the blast radius
-lights up on the mesh, the cost counter moves, and the cold-vs-warm bars update from the ledger
-when the run finishes. "Withhold memory" forces the cold path on the same alert, which is the
-A/B in one click.
+Pick an alert, press Investigate. Tool calls stream in over SSE as they happen, the cost counter
+moves, and the cold-vs-warm bars update from the ledger when the run finishes. "Withhold memory"
+forces the cold path on the same alert, which is the A/B in one click.
+
+Two traversals are drawn in two colours, because they answer two different questions: the
+**dependency cone** the agent searched for a cause (upstream, blue dashed — the set
+`upstream_candidates` actually returned, not a recomputation) and the **blast radius** that
+breaks with the failing service (downstream, red).
+
+The verdict panel shows the **computed verdict first**, read back from the graph through
+`/api/verdict`: the culprit, the chain from alert → service → deploy → commit → author, the
+confidence with the three terms that produced it, the impact, the owner and the runbook. The
+model's paragraph sits underneath it, labelled as the explanation rather than the answer. Where
+the two disagree, the card is the one that is checkable.
+
+With no local `runs.jsonl`, the bars fall back to the committed measurements and the caption
+says which file they came from — a judge opening the page before running anything still sees the
+comparison, and never mistakes it for a run on their own machine.
 
 Standard library only — no web framework. The demo has to run on a judge's machine from a clone
 and a `docker compose up`.
@@ -215,6 +239,10 @@ upgrade breaks a test instead of the demo. Details in [docs/decisions.md](docs/d
 - Variable-length **bounds cannot be parameterised** — `*1..$hops` raises.
 - Vector `score` is a **distance**: nearest neighbours are `ORDER BY score ASC`. The docs' own
   example orders `DESC`, which returns the least similar rows first.
+- `shortestPath` is legal **only in a `WITH` or `RETURN` clause** — `MATCH p = shortestPath(…)`,
+  the spelling every Cypher example uses, raises.
+- A node is **not at distance 0 from itself** under `*1..n`: the shortest path to itself comes
+  back empty with a `NULL` length, not as a one-node path.
 
 ## Documents
 
