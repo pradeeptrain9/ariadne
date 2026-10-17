@@ -25,9 +25,13 @@ from . import ledger as L
 from . import tools as T
 from .agent import investigate
 from .graph import Ariadne
+from .ingest import PayloadError, ingest
 from .scoring import explain
 
 WEB = Path(__file__).resolve().parent.parent / "web"
+
+#: An Alertmanager notification is a few kilobytes; anything near this is not one.
+MAX_BODY = 1_000_000
 
 #: The runs committed to the repo, used when this machine has not measured anything yet.
 SHIPPED_LEDGER = L.MEASURED_LEDGER
@@ -161,17 +165,26 @@ def alert_payload(a: Ariadne, alert_id: str) -> dict[str, Any] | None:
 
 
 def demo_alerts(a: Ariadne) -> dict[str, Any]:
-    """Scenario alerts, plus a few live ones, for the picker."""
+    """Scenario alerts, alerts pushed by the Alertmanager webhook, and a few seeded unresolved
+    ones, for the picker. Pushed alerts are listed by when they arrived, not by `at`: the page
+    polls this to notice a new one, and a pushed alert can carry any `startsAt`."""
     path = Path("fixtures/scenarios.json")
     scenarios = json.loads(path.read_text()) if path.exists() else {}
+    pushed = a.q("""
+        MATCH (x:Alert {source: 'alertmanager'})-[:FIRED_ON]->(s:Service)
+        RETURN x.id AS id, x.at AS at, x.metric AS metric, x.value AS value,
+               x.severity AS severity, s.name AS service, x.received_at AS received_at,
+               x.alertname AS alertname
+        ORDER BY x.received_at DESC LIMIT 5
+    """)
     recent = a.q("""
         MATCH (x:Alert)-[:FIRED_ON]->(s:Service)
-        WHERE NOT (:Incident)-[:TRIGGERED_BY]->(x)
+        WHERE NOT (:Incident)-[:TRIGGERED_BY]->(x) AND x.source IS NULL
         RETURN x.id AS id, x.at AS at, x.metric AS metric, x.value AS value,
                x.severity AS severity, s.name AS service
         ORDER BY x.at DESC LIMIT 12
     """)
-    return {"scenarios": scenarios, "unresolved": recent}
+    return {"scenarios": scenarios, "pushed": pushed, "unresolved": recent}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -249,6 +262,50 @@ class Handler(BaseHTTPRequestHandler):
         except BrokenPipeError:
             pass
         except Exception as exc:  # a demo that dies silently is worse than one that explains
+            traceback.print_exc()
+            try:
+                self._json({"error": str(exc)}, 500)
+            except Exception:
+                pass
+
+    def do_POST(self) -> None:  # noqa: N802
+        route = urlparse(self.path)
+        try:
+            if route.path != "/api/alertmanager":
+                self._json({"error": "not found"}, 404)
+                return
+            length = self.headers.get("Content-Length")
+            if length is None:
+                self._json({"error": "Content-Length required"}, 411)
+                return
+            try:
+                size = int(length)
+            except ValueError:
+                self._json({"error": "Content-Length is not a number"}, 400)
+                return
+            if size < 0 or size > MAX_BODY:
+                self._json({"error": f"body over {MAX_BODY} bytes"}, 413)
+                return
+            try:
+                payload = json.loads(self.rfile.read(size).decode() or "null")
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                self._json({"error": f"body is not JSON: {exc}"}, 400)
+                return
+            # Its own handle, as the investigation worker has: this route writes, and a
+            # FalkorDB connection is not safe to share across the server's request threads.
+            with Ariadne(self._graph.name) as own:
+                try:
+                    result = ingest(own, payload)
+                except PayloadError as exc:
+                    self._json({"error": str(exc)}, 400)
+                    return
+            if result["accepted"]:
+                print("alertmanager → " + ", ".join(
+                    f"{x['id']} on {x['service']}" for x in result["accepted"]))
+            self._json(result)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:
             traceback.print_exc()
             try:
                 self._json({"error": str(exc)}, 500)

@@ -145,6 +145,10 @@
   }
   .hint { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
   .err { color: var(--hot); font: 12px var(--mono); white-space: pre-wrap; }
+  .incoming {
+    margin: 8px 0 0; padding: 7px 10px; border-radius: 6px; font-size: 12.5px;
+    border: 1px solid var(--hot); color: var(--hot);
+  }
   .stack { display: grid; gap: 16px; align-content: start; }
 </style>
 </head>
@@ -188,6 +192,7 @@
         <label class="inline"><input type="checkbox" id="cold"> withhold memory</label>
         <button class="primary" id="go">Investigate</button>
       </div>
+      <p class="incoming" id="incoming" hidden></p>
       <p class="hint" id="shape"></p>
       <p class="err" id="error"></p>
     </section>
@@ -214,6 +219,9 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+// Webhook alerts carry sender-chosen labels, so anything from one is escaped before innerHTML.
+const escHtml = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const fmt = (n) => n.toLocaleString();
 let MESH = { services: [], deps: [] }, byName = new Map(), stream = null;
 
@@ -547,18 +555,52 @@ function run() {
     + `${st.incident} incidents · ${st.plan} plans · ${st.step} steps`;
   drawMesh();
 
-  const { scenarios, unresolved } = await (await fetch("/api/alerts")).json();
+  const alerts = await (await fetch("/api/alerts")).json();
+  alerts.pushed.forEach((a) => SEEN.add(a.id));
+  renderAlerts(alerts);
+
+  $("go").onclick = run;
+  loadLedger();
+  setInterval(pollAlerts, 3000);
+})();
+
+/* ---------- alerts, including ones pushed by the Alertmanager webhook ----- */
+const SEEN = new Set();
+
+function renderAlerts({ scenarios, pushed, unresolved }) {
+  const keep = $("alert").value;
   const opts = [];
   const push = (a, label) => a && opts.push(
-    `<option value="${a.id}">${label} — ${a.service} · ${a.metric} · ${a.severity}</option>`);
+    `<option value="${escHtml(a.id)}">${escHtml(label)} — ${escHtml(a.service)} · `
+    + `${escHtml(a.metric)} · ${escHtml(a.severity)}</option>`);
+  pushed.forEach((a) => push(a, `Alertmanager ${a.id}`));
   (scenarios.scenario_a || []).forEach((a, i) => push(a, `A${i + 1} repeated shape`));
   push(scenarios.scenario_b, "B novel shape");
   unresolved.forEach((a) => push(a, a.id));
   $("alert").innerHTML = opts.join("");
+  if (keep) $("alert").value = keep;
+}
 
-  $("go").onclick = run;
-  loadLedger();
-})();
+// The page notices a webhook alert by polling: three seconds is quick enough to look live on
+// camera, and a poll needs nothing from the server that the picker did not already use.
+async function pollAlerts() {
+  let alerts;
+  try { alerts = await (await fetch("/api/alerts")).json(); } catch { return; }
+  const fresh = alerts.pushed.filter((a) => !SEEN.has(a.id));
+  fresh.forEach((a) => SEEN.add(a.id));
+  renderAlerts(alerts);
+  if (!fresh.length) return;
+  const a = fresh[0];
+  const at = new Date(a.at).toISOString().replace(".000Z", "Z");
+  $("incoming").textContent = `Alertmanager webhook: ${a.alertname || a.metric} firing on `
+    + `${a.service} (severity ${a.severity}, startsAt ${at}) — received as ${a.id}`;
+  $("incoming").hidden = false;
+  if (!$("go").disabled) {  // never swap the alert out from under a run in progress
+    $("alert").value = a.id;
+    highlight(a.service);
+    $("meshNote").textContent = `${a.service} is paging · not investigated yet`;
+  }
+}
 </script>
 </body>
 </html>

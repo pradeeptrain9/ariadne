@@ -17,7 +17,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 DOC = ROOT / "docs" / "queries.md"
-SOURCES = ("ariadne/tools.py", "ariadne/signature.py")
+SOURCES = ("ariadne/tools.py", "ariadne/signature.py", "ariadne/ingest.py")
 
 #: f-string interpolation in the source becomes this placeholder in the doc.
 PLACEHOLDER = "{…}"

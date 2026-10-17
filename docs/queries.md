@@ -337,6 +337,33 @@ regardless of a trailing `LIMIT`. Nothing here relies on `LIMIT` to bound what i
 
 ---
 
+## `ingest.ingest(payload)` — the Alertmanager webhook
+
+`POST /api/alertmanager` takes Alertmanager's version-4 webhook body. Each firing alert is
+checked against the graph (the service must exist; a re-send must not duplicate), then written
+as one node and one edge. Nothing else is written: the investigation is started separately.
+
+```cypher
+MATCH (s:Service {name: $service}) RETURN s.name AS name
+```
+
+```cypher
+MATCH (x:Alert {id: $id}) RETURN x.id AS id
+```
+
+```cypher
+MATCH (s:Service {name: $service})
+CREATE (x:Alert {id: $id, at: $at, metric: $metric, value: $value, severity: $severity,
+                 source: $source, alertname: $alertname, fingerprint: $fingerprint,
+                 received_at: $received_at})
+CREATE (x)-[:FIRED_ON]->(s)
+```
+
+`id` is derived from Alertmanager's `fingerprint` and `startsAt`, so a re-send every
+`repeat_interval` lands on the same id. The existence check and the `CREATE` are two queries,
+not a `MERGE`: the response has to say whether the alert was new, and `MERGE` does not report
+which branch it took.
+
 ## Graph algorithms, and where each one actually runs
 
 | Algorithm | Where | Why |

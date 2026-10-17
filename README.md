@@ -20,11 +20,12 @@ Coordination**.
 | Agent loop (tool runner, caching, effort policy) | run — 40 live investigations in `docs/measurements/runs.jsonl` |
 | Cold-vs-warm measurement harness | run at **20 alerts per arm** (40 runs, $1.42) |
 | MCP server (stdio, read-only by default) | done |
+| Alertmanager webhook (`POST /api/alertmanager`) | done — files alerts; does not start investigations |
 | Demo page with live streaming run | path covered by tests; the model call in it is not |
-| Submission write-up, measurements, video shot list | done |
+| Submission write-up, measurements, video run of show | done |
 | Demo video | not recorded |
 
-Everything below is measured, not projected — 128 tests, and the numbers come out of
+Everything below is measured, not projected — 156 tests, and the numbers come out of
 `docs/measurements/runs.jsonl`: 20 alerts per arm, stated wherever the ratio is.
 
 **What is verified live, and what by test.** The 20-alert measurement is 40 live model runs
@@ -72,7 +73,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m ariadne.seed          # deterministic graph + fixtures/scenarios.json
 .venv/bin/python -m ariadne.verify        # graph correctness, prints every number it found
-.venv/bin/python -m pytest -q             # 128 tests, no API key needed
+.venv/bin/python -m pytest -q             # 156 tests, no API key needed
 ```
 
 Verified from a clean clone on a fresh virtualenv, in that order. The install also puts
@@ -159,6 +160,41 @@ Needs `ANTHROPIC_API_KEY` — the page drives the real agent.
 Pick an alert, press Investigate. Tool calls stream in over SSE as they happen, the cost counter
 moves, and the cold-vs-warm bars update from the ledger when the run finishes. "Withhold memory"
 forces the cold path on the same alert, which is the A/B in one click.
+
+### Alerts in from Alertmanager
+
+The server is also an Alertmanager webhook receiver. Point a `webhook_config` at it:
+
+```yaml
+receivers:
+  - name: ariadne
+    webhook_configs:
+      - url: http://127.0.0.1:8000/api/alertmanager
+```
+
+Each firing alert in the notification becomes an `Alert` node on the service its `service`
+(else `app`, else `job`) label names; the response carries the alert's structural signature, so
+whether memory holds a plan for it is known before anyone pays for an investigation. Re-sends
+dedupe on Alertmanager's `fingerprint` and `startsAt`; resolved alerts, unknown services and
+malformed entries are skipped with a reason, without costing the rest of the group. The page
+polls for new ones and selects the latest. The webhook does not start the investigation — each
+one is a paid model call, so a person presses Investigate.
+
+The receiver has no authentication. The demo server binds `127.0.0.1` only; anything exposed
+beyond the machine needs a bearer token (Alertmanager's `http_config.authorization`) checked
+here first.
+
+To send one without running Alertmanager:
+
+```bash
+.venv/bin/python -m ariadne.fire --service catalog-service
+```
+
+It posts the body Alertmanager would (`--print` shows it, for piping into `curl`), with one
+difference: `startsAt` is placed on the seeded graph's clock, a few minutes after the service's
+latest deploy, because the synthetic deploys are not on today's date. A wall-clock `startsAt` is
+accepted; against this graph its window just holds no deploys. Mapping rules are in
+`ariadne/ingest.py`, and its Cypher is in `docs/queries.md`.
 
 Two traversals are drawn in two colours, because they answer two different questions: the
 **dependency cone** the agent searched for a cause (upstream, blue dashed — the set
@@ -264,7 +300,7 @@ upgrade breaks a test instead of the demo. Details in [docs/decisions.md](docs/d
 |---|---|
 | [SUBMISSION.md](SUBMISSION.md) | the submission write-up, including what went wrong |
 | [docs/measurements/](docs/measurements/) | the raw ledger behind every number here |
-| [docs/video.md](docs/video.md) | demo video shot list |
+| [docs/video.md](docs/video.md) | demo video run of show — what is on screen, what to do, what to say |
 | [docs/graph-model.md](docs/graph-model.md) | nodes, edges, properties, indexes |
 | [docs/queries.md](docs/queries.md) | the query behind each agent tool |
 | [docs/architecture.md](docs/architecture.md) | agent loop, confidence formula, cost ledger |
