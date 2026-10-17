@@ -21,6 +21,7 @@ import argparse
 import json
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -84,6 +85,8 @@ def main() -> None:
     ap.add_argument("--starts-at", type=int, help="epoch ms; default: on the graph's clock")
     ap.add_argument("--lag-min", type=int, default=DEFAULT_LAG_MIN,
                     help="minutes after the service's latest deploy (default %(default)s)")
+    ap.add_argument("--exact", action="store_true",
+                    help="no jitter: the same startsAt every time, so a repeat is a re-send")
     ap.add_argument("--url", default="http://127.0.0.1:8000/api/alertmanager")
     ap.add_argument("--print", action="store_true", help="print the payload instead of sending")
     args = ap.parse_args()
@@ -91,6 +94,11 @@ def main() -> None:
     if args.starts_at is None:
         with Ariadne() as a:
             starts_at = starts_at_on_graph_clock(a, args.service, args.lag_min)
+        # Up to ten minutes of jitter, so firing twice is two alerts rather than a re-send the
+        # receiver dedupes (and the page then has nothing new to announce). Still well inside
+        # the deploy window, so the signature is unchanged.
+        if not args.exact:
+            starts_at += (int(time.time()) % 600) * 1000
     else:
         starts_at = args.starts_at
 
