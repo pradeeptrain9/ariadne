@@ -8,10 +8,20 @@
 
 ## Inspiration
 
-An alert fires at 2am. The on-call engineer spends the next forty minutes answering three
-questions that the company already knows the answers to: *what changed, what else breaks, who
-owns it.* The deploy history knows. The dependency graph knows. The last six incidents that
-looked exactly like this one knew too, and nobody wrote it down in a form anything can read.
+An alert fires at 2am. The on-call engineer starts answering three questions that the company
+already knows the answers to: *what changed, what else breaks, who owns it.* The deploy history
+knows. The dependency graph knows. The last six incidents that looked exactly like this one knew
+too, and nobody wrote it down in a form anything can read.
+
+Google's SRE book puts roughly 70% of outages down to changes in a live system
+([sre.google](https://sre.google/sre-book/introduction/)). Cloudflare's outage of 18 November
+2025 is the shape of it: a database permissions change deployed at 11:05, errors from 11:28, and
+an investigation that first chased a downstream service (Workers KV) and a suspected DDoS before
+turning to the Bot Management file at 13:37
+([postmortem](https://blog.cloudflare.com/18-november-2025-outage)). Ariadne's walk on that
+graph goes from the alerting service up to the change; its file-overlap ranking would score that
+change zero, because it sat two hops upstream, so Ariadne surfaces and flags it rather than
+ranking it first — the blind spot described under *What we learned*.
 
 The reason an agent does not fix this by default is that each of those questions is a question
 about **relationships**, and an agent handed a pile of logs sees rows. It cannot follow a
@@ -97,25 +107,24 @@ connector would have cost a day and proved nothing about either.
 ## What the memory is worth
 
 Same alerts, same graph, memory withheld versus available, on `claude-sonnet-5`, at
-**3 alerts per arm** — six runs, the ledger's whole contents:
+**20 alerts per arm** — 40 live runs:
 
 | | runs | tool calls | tokens | cost | wall |
 |---|---|---|---|---|---|
-| cold (memory withheld) | 3 | 7.0 | 36,320 | $0.0503 | 28.0s |
-| warm (memory available) | 3 | 4.0 | 25,867 | $0.0273 | 16.2s |
+| cold (memory withheld) | 20 | 7.3 | 32,503 | $0.0438 | 22.8s |
+| warm (memory available) | 20 | 4.0 | 26,772 | $0.0274 | 13.9s |
 
-**1.8× cheaper, 1.8× fewer tool calls, the same culprit commit on every alert.** Warm runs
-reported higher confidence, because the recalled hypothesis corroborates what the current window
-shows. Raw ledger and per-run detail: `docs/measurements/`.
+**1.6× cheaper, 1.8× fewer tool calls, the same culprit commit on all 20 alerts.** Every warm
+run took the same four calls. The computed confidence was identical in both arms on every
+alert, because it is read from the same three graph facts either way. Raw ledger and per-run
+detail: `docs/measurements/`.
 
-Three per arm is a small sample and the ratio is stated as one. Widening it to 20 per arm is
-`python -m ariadne.replay --n 20`, which has not been run: it needs an API key. The harness
-pre-flights that run without one (`--dry-run`: 40 runs, ~$1.55 estimated from the rows above)
-and refuses to start on a missing credential or a graph with too few alerts, rather than
-quietly measuring a smaller sample.
+Our first measurement used 3 alerts per arm and read 1.8×. Widening to 20 brought the cost
+ratio down to 1.6× and left the call ratio at 1.8× — the bigger sample is the number we
+report.
 
-The same comparison on `claude-opus-5` measured 1.9× (cold $0.1281, warm $0.0677). We moved to
-Sonnet 5 for cost and the ratio held, which is why the claim is a ratio and not a price.
+An earlier, smaller comparison on `claude-opus-5` measured 1.9× (cold $0.1281, warm $0.0677).
+We moved to Sonnet 5 for cost; the claim is a ratio rather than a price for that reason.
 
 ### It did not work the first time
 
@@ -196,9 +205,9 @@ cross-service plan transfer, for which the data is already in the graph.
 - **Rule 10 — artifacts:** public repo, README with setup and the graph model, the Cypher and
   algorithms the product depends on (`docs/queries.md`), demo video, local setup instructions,
   tracks named.
-- **Rule 11 — AI disclosure:** built with Claude Code (`claude-opus-5`); the agent itself
-  runs on `claude-sonnet-5` — design notes, the
-  seeder, tools, agent loop, tests and this document. Every FalkorDB behaviour in
+- **Rule 11 — AI disclosure:** built with Claude Code (Claude Opus models), which wrote design
+  notes, the seeder, tools, agent loop, tests and this document. The agent itself runs on
+  `claude-sonnet-5`. Every FalkorDB behaviour in
   `docs/decisions.md` was established by running queries against a live instance, not taken from
   the model's or the documentation's word.
 - **Rules 12–13 — understanding:** `docs/walkthrough.md` is the explain-it-to-a-judge document —
