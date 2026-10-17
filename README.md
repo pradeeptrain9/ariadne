@@ -24,7 +24,7 @@ Coordination**.
 | Hosted demo (`Dockerfile`, `render.yaml`, public-mode limits) | live at https://ariadne-aixd.onrender.com/ |
 | Demo page with live streaming run | path covered by tests; the model call in it is not |
 | Submission write-up, measurements, video run of show | done |
-| Demo video | not recorded |
+| Demo video | done https://youtu.be/hEJWUZczjWo |
 
 Everything below is measured, not projected — 168 tests, and the numbers come out of
 `docs/measurements/runs.jsonl`: 20 alerts per arm, stated wherever the ratio is.
