@@ -100,9 +100,13 @@ flattering one is not.
 
 Data is entirely synthetic from a fixed RNG seed: 40 services, 100 dependency edges, 241 commits,
 70 deploys, 90 alerts, 68 resolved incidents. Re-seeding reproduces it exactly, which matters
-because the cost comparison is only honest if both arms see the same world. We deliberately built
-no ingestion pipeline — the graph model and the agent are what gets judged, and a Datadog
-connector would have cost a day and proved nothing about either.
+because the cost comparison is only honest if both arms see the same world. Alerts can come
+in for real: the demo server is an Alertmanager webhook receiver (`POST /api/alertmanager`,
+version-4 body), which files each firing alert on its service, dedupes re-sends on the
+fingerprint, and returns the alert's signature before anything is investigated. It does not start
+investigations, because each one is a paid model call. Deploys, commits, owners and dependencies
+have no connector — the graph model and the agent are what gets judged, and a GitHub or
+service-catalog sync would have cost a day and proved nothing about either.
 
 ## What the memory is worth
 
@@ -176,7 +180,7 @@ commits explicitly instead of silently promoting one.
 
 ## What's next
 
-Real ingestion behind the same schema, starting with GitHub. Human verification on
+The rest of ingestion behind the same schema: GitHub for deploys and commits, a service catalog for owners and dependencies. Human verification on
 `CAUSED_BY.verified` so plans reinforce on confirmed outcomes rather than the agent's own
 confidence. Per-tenant memory, which the signature design already permits. And measuring
 cross-service plan transfer, for which the data is already in the graph.
