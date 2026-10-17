@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -102,11 +103,21 @@ def main() -> None:
     req = urllib.request.Request(args.url, data=json.dumps(payload).encode(), method="POST",
                                  headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        import certifi  # present on most machines; python.org's macOS build ships no CA bundle
+        context = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        context = None
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=context) as resp:
             result = json.loads(resp.read().decode())
     except urllib.error.HTTPError as exc:
         sys.exit(f"{exc.code}: {exc.read().decode()}")
     except urllib.error.URLError as exc:
+        if isinstance(exc.reason, ssl.SSLCertVerificationError):
+            sys.exit("this Python has no CA certificates to verify HTTPS with. Either run "
+                     "macOS's 'Install Certificates.command' for this Python, `pip install "
+                     "certifi`, or send it with curl:  python -m ariadne.fire --print | curl -s "
+                     f"-H 'Content-Type: application/json' --data @- {args.url}")
         sys.exit(f"could not reach {args.url}: {exc.reason} — is `python -m ariadne.server` up?")
 
     for a in result["accepted"]:

@@ -7,7 +7,7 @@ changed, what else breaks, who owns it** — and shows the path through a Falkor
 it there. Then it remembers: the resolved incident is written back as a reusable plan, so the
 next alert with the same *structural shape* replays that plan instead of re-investigating.
 
-Built for [Graph Hacks](https://www.wemakedevs.org/hackathons/falkordb) (FalkorDB, Oct 15–18
+**Try it:** https://ariadne-aixd.onrender.com/ · Built for [Graph Hacks](https://www.wemakedevs.org/hackathons/falkordb) (FalkorDB, Oct 15–18
 2026). Entering two tracks: **Agents That Act on Connected Data** and **Agent Memory and
 Coordination**.
 
@@ -21,7 +21,7 @@ Coordination**.
 | Cold-vs-warm measurement harness | run at **20 alerts per arm** (40 runs, $1.42) |
 | MCP server (stdio, read-only by default) | done |
 | Alertmanager webhook (`POST /api/alertmanager`) | done — files alerts; does not start investigations |
-| Hosted demo (`Dockerfile`, `render.yaml`, public-mode limits) | built and tested in a local container; not yet deployed |
+| Hosted demo (`Dockerfile`, `render.yaml`, public-mode limits) | live at https://ariadne-aixd.onrender.com/ |
 | Demo page with live streaming run | path covered by tests; the model call in it is not |
 | Submission write-up, measurements, video run of show | done |
 | Demo video | not recorded |
@@ -217,8 +217,9 @@ and a `docker compose up`.
 
 ## Hosted demo
 
-The same page runs on a public URL, with no setup: **hosted demo — link in SUBMISSION.md once
-deployed.** Everything on it works for anyone — the mesh, the committed 20-alert measurement,
+The same page runs on a public URL, with no setup: **[ariadne-aixd.onrender.com](https://ariadne-aixd.onrender.com/)**
+(free instance: the first visit after it
+has been idle takes about a minute to wake). Everything on it works for anyone — the mesh, the committed 20-alert measurement,
 the computed verdicts, the Alertmanager webhook — and live investigations run on the project's
 API key, so the hosted server limits them:
 
